@@ -36,7 +36,7 @@ class EvidenceMapModule(nn.Module):
         in_channels, in_h, in_w = size_after_backbone
         self.num_classes = num_classes
         self.upscale = self._build_upsampler(in_channels, in_h, in_w, original_image_dimension, num_classes)
-        self.sparsemax = sparsemax
+        self.entmax15 = entmax15
 
     def _build_upsampler(self, in_channels, in_h, in_w, target_size, num_classes):
         layers = []
@@ -68,8 +68,7 @@ class EvidenceMapModule(nn.Module):
     def forward(self, x, inference=False, return_maps=False, inference_thresh=None):
         upscaled = self.upscale(x)
         
-        upscaled = upscaled.clamp(min=-1e4, max=1e4)
-        maps = self.sparsemax(upscaled, dim=1)
+        maps = self.entmax15(upscaled, dim=1)
         
         if inference:
             # used = maps > 1/self.num_classes
