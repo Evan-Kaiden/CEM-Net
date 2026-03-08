@@ -17,6 +17,7 @@ map_arg = {
     'vgg19' : VGG('VGG19'), 
     'mobilenetv2' : MobileNetV2(),
     'adam' : optim.Adam,
+    'adamw' : optim.AdamW,
     'rmsprop' : optim.RMSprop,
     'sgd' : optim.SGD,
     'cosine' : lr_scheduler.CosineAnnealingLR, 
