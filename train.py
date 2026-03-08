@@ -31,7 +31,7 @@ def train_one_epoch(epoch : int, model : nn.Module, trainloader : DataLoader, op
         "total": 0,
     }
 
-    lamb_bin = 2.0
+    lamb_bin = 1.0
     lamb_ce = 50.0
     lamb_tv = 0.05
 
