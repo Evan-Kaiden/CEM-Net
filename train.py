@@ -10,7 +10,8 @@ from tqdm import tqdm
 
 import time
 
-from utils import print_row, mask_overlap_loss
+from utils import print_row
+from losses import binary_loss, mask_overlap_loss, mask_area_loss, mask_tv_loss
 
 criterion = nn.CrossEntropyLoss()
 
@@ -21,9 +22,9 @@ def train_one_epoch(epoch : int, model : nn.Module, trainloader : DataLoader, op
     total_loss = 0.0
     metrics = {
         "ce": 0.0,
+        "tv": 0.0,
         "binary": 0.0,
         "vary" : 0.0,
-        "overlap": 0.0,
         "small_maps": 0.0,
         "large_maps": 0.0,
         "map_total": 0.0,
@@ -31,9 +32,10 @@ def train_one_epoch(epoch : int, model : nn.Module, trainloader : DataLoader, op
         "total": 0,
     }
 
-    lamb_bin = 500
-    lamb_vary = 10
-    lamb_overlap = 0.5
+    lamb_bin = 1.0
+    lamb_vary = 0.001
+    # lamb_overlap = 0.001
+    lamb_tv = 0.05
 
     for images, targets in tqdm(trainloader, leave=False):
         images = images.to(device)
@@ -43,17 +45,17 @@ def train_one_epoch(epoch : int, model : nn.Module, trainloader : DataLoader, op
         
         logits, maps = model(images, return_maps=True)   
         ce_loss = criterion(logits, targets)
-        bin_loss = (maps * (1 - maps)).pow(2).mean()
-        vary_loss = maps.mean()
-        overlap_loss = mask_overlap_loss(maps)
+        bin_loss = binary_loss(maps)
+        vary_loss = mask_area_loss(maps)
+        tv_loss = mask_tv_loss(maps)
         # vary_loss = -(maps * torch.log(maps + 1e-8) + (1 - maps) * torch.log(1 - maps + 1e-8)).mean()
  
-        step_loss = ce_loss + lamb_bin * bin_loss + lamb_vary * vary_loss + lamb_overlap * overlap_loss
+        step_loss = ce_loss + lamb_bin * bin_loss + lamb_vary * vary_loss  + lamb_tv * tv_loss
         total_loss += step_loss
         step_loss.backward()
         optimizer.step()
 
-        metrics["overlap"] += lamb_overlap * overlap_loss.item()
+        metrics["tv"] += lamb_tv * tv_loss.item()
         metrics["vary"] += lamb_vary * vary_loss.item()
         metrics["binary"] += lamb_bin * bin_loss.item()
         metrics["ce"] += ce_loss.item()
@@ -72,14 +74,14 @@ def train_one_epoch(epoch : int, model : nn.Module, trainloader : DataLoader, op
             scheduler.step()
 
     lr = optimizer.param_groups[0]["lr"]
+    avg_tv = metrics['tv'] / num_batches
     avg_ce = metrics["ce"] / num_batches
     avg_bin = metrics["binary"] / num_batches
     avg_vary = metrics["vary"] / num_batches
-    avg_overlap = metrics["overlap"] / num_batches
     acc = metrics["correct"] / max(1, metrics["total"])
     small_map_avg = metrics["small_maps"] / metrics["map_total"]
     large_map_avg = metrics["large_maps"] / metrics["map_total"]
-    return acc, avg_ce, avg_bin, avg_vary, avg_overlap, lr, small_map_avg, large_map_avg
+    return acc, avg_ce, avg_bin, avg_vary, avg_tv, lr, small_map_avg, large_map_avg
 
 def test(args, epoch: int, model : nn.Module, testloader : DataLoader, device=None):
     model.eval()
@@ -111,11 +113,11 @@ def train(epochs : int, model : nn.Module, trainloader : DataLoader, testloader:
 
     for epoch in range(start_epoch, epochs):
         start_time = time.time()
-        train_acc, avg_ce, avg_bin, avg_vary, avg_overlap, lr, small_map_avg, large_map_avg = train_one_epoch(epoch, model, trainloader, optimizer, scheduler, device)
+        train_acc, avg_ce, avg_bin, avg_vary, avg_tv, lr, small_map_avg, large_map_avg = train_one_epoch(epoch, model, trainloader, optimizer, scheduler, device)
         test_loss, test_acc = test(config, epoch, model, testloader, device)
         end_time = time.time()
         epoch_time = int(end_time - start_time)
-        metrics = [train_acc, test_acc, avg_ce, avg_bin, avg_vary, avg_overlap, small_map_avg, large_map_avg, lr, epoch_time]
+        metrics = [train_acc, test_acc, avg_ce, avg_bin, avg_vary, avg_tv, small_map_avg, large_map_avg, lr, epoch_time]
         print_row(epoch, metrics)
         
         state_dict = scheduler.state_dict() if scheduler is not None else None

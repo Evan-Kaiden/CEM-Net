@@ -13,7 +13,7 @@ def get_scheduler(map_arg, optimizer, scheduler, epochs, lr):
     return scheduler
 
 def print_row(epoch, metrics_vals):
-    metrics = ('epoch', 'train acc %', 'test acc %', 'ce', 'bin', 'vary', 'overlap', 'map < 0.1', 'map > 0.9', 'lr', 'epoch time')
+    metrics = ('epoch', 'train acc %', 'test acc %', 'ce', 'bin', 'vary', 'tv', 'map < 0.1', 'map > 0.9', 'lr', 'epoch time')
     cell_size = max(len(m) for m in metrics)
     cell_size +=  cell_size % 2 + 1
 
@@ -44,15 +44,3 @@ def print_row(epoch, metrics_vals):
     print(built)
 
 
-def mask_overlap_loss(masks):
-    """
-    masks: (K, H, W) tensor with values in [0,1]
-    returns: scalar overlap penalty
-    """
-    K = masks.shape[0]
-    masks = masks.view(K, -1)          # (K, HW)
-
-    overlap = torch.matmul(masks, masks.T)   # (K, K)
-    overlap = overlap - torch.diag(torch.diag(overlap))  # remove self-overlap
-
-    return overlap.mean()
