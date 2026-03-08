@@ -68,6 +68,7 @@ class EvidenceMapModule(nn.Module):
     def forward(self, x, inference=False, return_maps=False, inference_thresh=None):
         upscaled = self.upscale(x)
         
+        upscaled = upscaled.clamp(min=-1e4, max=1e4)
         maps = self.sparsemax(upscaled, dim=1)
         
         if inference:
