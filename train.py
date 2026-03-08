@@ -32,10 +32,10 @@ def train_one_epoch(epoch : int, model : nn.Module, trainloader : DataLoader, op
     }
 
     lamb_bin = 1.0
-    lamb_ce = 10.0
+    lamb_ce = 50.0
     # lamb_vary = 0.001
     # lamb_overlap = 0.001
-    lamb_tv = 0.5
+    lamb_tv = 0.05
 
     for images, targets in tqdm(trainloader, leave=False):
         images = images.to(device)
