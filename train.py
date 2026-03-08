@@ -15,7 +15,7 @@ from losses import binary_loss, mask_overlap_loss, mask_area_loss, mask_tv_loss
 
 criterion = nn.CrossEntropyLoss()
 
-def train_one_epoch(epoch : int, model : nn.Module, trainloader : DataLoader, optimizer : Optimizer, scheduler, device=None):
+def train_one_epoch(args, epoch : int, model : nn.Module, trainloader : DataLoader, optimizer : Optimizer, scheduler, device=None):
     model.train()
     num_batches = len(trainloader)
 
@@ -31,9 +31,9 @@ def train_one_epoch(epoch : int, model : nn.Module, trainloader : DataLoader, op
         "total": 0,
     }
 
-    lamb_bin = 1.0
-    lamb_ce = 100.0
-    lamb_tv = 0.05
+    lamb_bin = args["lamb_bin"]
+    lamb_ce = args["lamb_ce"]
+    lamb_tv = args["lamb_ce"]
 
     for images, targets in tqdm(trainloader, leave=False):
         images = images.to(device)
@@ -112,7 +112,7 @@ def train(epochs : int, model : nn.Module, trainloader : DataLoader, testloader:
 
     for epoch in range(start_epoch, epochs):
         start_time = time.time()
-        train_acc, avg_ce, avg_bin, avg_tv, lr, small_map_avg, large_map_avg = train_one_epoch(epoch, model, trainloader, optimizer, scheduler, device)
+        train_acc, avg_ce, avg_bin, avg_tv, lr, small_map_avg, large_map_avg = train_one_epoch(config, epoch, model, trainloader, optimizer, scheduler, device)
         test_loss, test_acc = test(config, epoch, model, testloader, device)
         end_time = time.time()
         epoch_time = int(end_time - start_time)
