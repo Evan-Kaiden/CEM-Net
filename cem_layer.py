@@ -70,10 +70,10 @@ class EvidenceMapModule(nn.Module):
     def forward(self, x, inference=False, return_maps=False):
         x = self.upscale(x)
         # flat = x.view()
-        maps = self.entmax(x)
+        maps = self.entmax(x, dim=1)
         
-        if inference:
-            maps = (maps > 0.7).float()
+        # if inference:
+        #     maps = (maps > 0.7).float()
 
         logits = maps.sum(dim=(-2, -1))
         if return_maps:
