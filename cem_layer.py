@@ -3,6 +3,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 
+from entmax import sparsemax, entmax15
+
 class EvidenceMapModule(nn.Module):
     """
         Initialize the Class Evidence Map (CEM) layer.
@@ -35,6 +37,8 @@ class EvidenceMapModule(nn.Module):
         
         self.upscale = self._build_upsampler(in_channels, in_h, in_w, original_image_dimension, num_classes)
         self.sigmoid = nn.Sigmoid()
+        self.softmax = nn.Softmax(dim=1)
+        self.entmax = entmax15
 
     def _build_upsampler(self, in_channels, in_h, in_w, target_size, num_classes):
         layers = []
@@ -66,7 +70,7 @@ class EvidenceMapModule(nn.Module):
     def forward(self, x, inference=False, return_maps=False):
         x = self.upscale(x)
         # flat = x.view()
-        maps = self.sigmoid(x)
+        maps = self.entmax(x)
         
         if inference:
             maps = (maps > 0.7).float()

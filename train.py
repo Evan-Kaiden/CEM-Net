@@ -32,7 +32,7 @@ def train_one_epoch(epoch : int, model : nn.Module, trainloader : DataLoader, op
         "total": 0,
     }
 
-    lamb_bin = 1.0
+    lamb_bin = 0.0
     lamb_vary = 0.001
     # lamb_overlap = 0.001
     lamb_tv = 0.05
@@ -118,7 +118,7 @@ def train(epochs : int, model : nn.Module, trainloader : DataLoader, testloader:
         end_time = time.time()
         epoch_time = int(end_time - start_time)
         metrics = [train_acc, test_acc, avg_ce, avg_bin, avg_vary, avg_tv, small_map_avg, large_map_avg, lr, epoch_time]
-        print_row(epoch, metrics)
+        print_row(epoch, metrics, config['run_dir'])
         
         state_dict = scheduler.state_dict() if scheduler is not None else None
         state = {                
@@ -126,8 +126,8 @@ def train(epochs : int, model : nn.Module, trainloader : DataLoader, testloader:
                 "test_loss" : test_loss,
                 "test_acc" : test_acc * 100,
                 "model_state": model.state_dict(),
-                "optimizer_state": optimizer.state_dict(),
-                "scheduler_state": state_dict,
+                # "optimizer_state": optimizer.state_dict(),
+                # "scheduler_state": state_dict,
                 "config": config,
                 }
         torch.save(state, os.path.join(os.path.curdir, config["run_dir"], f"state.pth"))

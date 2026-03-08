@@ -1,4 +1,4 @@
-import torch
+import os
 
 def get_scheduler(map_arg, optimizer, scheduler, epochs, lr):
     if scheduler == "cosine":
@@ -12,19 +12,23 @@ def get_scheduler(map_arg, optimizer, scheduler, epochs, lr):
     
     return scheduler
 
-def print_row(epoch, metrics_vals):
+def print_row(epoch, metrics_vals, run_dir):
     metrics = ('epoch', 'train acc %', 'test acc %', 'ce', 'bin', 'vary', 'tv', 'map < 0.1', 'map > 0.9', 'lr', 'epoch time')
     cell_size = max(len(m) for m in metrics)
     cell_size +=  cell_size % 2 + 1
 
     cell_top = '-' * cell_size + '+'
     row_top = '+' + cell_top * 11
+
+    log_path = os.path.join(run_dir, "log.txt")
+    output_lines = []
     if epoch == 0:
         header = row_top + "\n|"
         for m in metrics:
             header += m.center(cell_size)
             header += '|' 
         header += f'\n{row_top}'
+        output_lines.append(header)
 
         print(header)
 
@@ -41,6 +45,12 @@ def print_row(epoch, metrics_vals):
 
         built += text.center(cell_size) + '|'
     built += f'\n{row_top}'
+    output_lines.append(built)
+    
     print(built)
+
+    with open(log_path, "a") as f:
+        for line in output_lines:
+            f.write(line + "\n")
 
 
