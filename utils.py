@@ -13,7 +13,7 @@ def get_scheduler(map_arg, optimizer, scheduler, epochs, lr):
     return scheduler
 
 def print_row(epoch, metrics_vals, run_dir):
-    metrics = ('epoch', 'train acc %', 'test acc %', 'ce', 'bin', 'vary', 'tv', 'map < 0.1', 'map > 0.9', 'lr', 'epoch time')
+    metrics = ('epoch', 'train acc %', 'test acc %', 'ce', 'bin', 'tv', 'map < 0.1', 'map > 0.9', 'lr', 'epoch time')
     cell_size = max(len(m) for m in metrics)
     cell_size +=  cell_size % 2 + 1
 
