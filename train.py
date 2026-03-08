@@ -31,10 +31,11 @@ def train_one_epoch(epoch : int, model : nn.Module, trainloader : DataLoader, op
         "total": 0,
     }
 
-    lamb_bin = 0.0
+    lamb_bin = 1.0
+    lamb_ce = 2.0
     # lamb_vary = 0.001
     # lamb_overlap = 0.001
-    lamb_tv = 0.05
+    lamb_tv = 0.5
 
     for images, targets in tqdm(trainloader, leave=False):
         images = images.to(device)
@@ -45,12 +46,12 @@ def train_one_epoch(epoch : int, model : nn.Module, trainloader : DataLoader, op
         logits, maps = model(images, return_maps=True)   
         ce_loss = criterion(logits, targets)
         bin_loss = binary_loss(maps)
-        vary_loss = mask_area_loss(maps)
         tv_loss = mask_tv_loss(maps)
-        # vary_loss = -(maps * torch.log(maps + 1e-8) + (1 - maps) * torch.log(1 - maps + 1e-8)).mean()
  
-        step_loss = ce_loss + lamb_bin * bin_loss + lamb_tv * tv_loss
-        total_loss += step_loss
+
+        # scale loss terms
+        step_loss = lamb_ce * (ce_loss / ce_loss.detach()) + lamb_bin * (bin_loss / bin_loss.detach()) + lamb_tv * (tv_loss / tv_loss.detach())
+        total_loss += lamb_ce * ce_loss.detach() + lamb_bin * bin_loss.detach() + lamb_tv * tv_loss.detach()
         step_loss.backward()
         optimizer.step()
 

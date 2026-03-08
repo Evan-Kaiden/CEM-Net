@@ -18,6 +18,8 @@ def mask_tv_loss(masks):
     return dx + dy
 
 def mask_area_loss(masks):
+    # masks are C, H, W. we want for each C to be used i.e. we don't want one class to just take the whole image space as 
+    # this would be a degenerate solution
     return masks.view(masks.shape[0], -1).mean(dim=1).mean()
 
 def mask_overlap_loss(masks):

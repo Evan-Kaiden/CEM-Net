@@ -34,13 +34,9 @@ class EvidenceMapModule(nn.Module):
     def __init__(self, num_classes:int, size_after_backbone: tuple[int, int, int], original_image_dimension:int):
         super().__init__()
         in_channels, in_h, in_w = size_after_backbone
-        
+        self.num_classes = num_classes
         self.upscale = self._build_upsampler(in_channels, in_h, in_w, original_image_dimension, num_classes)
-        self.sigmoid = nn.Sigmoid()
-        self.softmax = nn.Softmax(dim=1)
-        self.entmax = entmax15
-
-        self.scaler = nn.Linear(in_channels, num_classes)
+        self.sparsemax = sparsemax
 
     def _build_upsampler(self, in_channels, in_h, in_w, target_size, num_classes):
         layers = []
@@ -69,21 +65,17 @@ class EvidenceMapModule(nn.Module):
 
         return nn.Sequential(*layers)
     
-    def forward(self, x, inference=False, return_maps=False):
+    def forward(self, x, inference=False, return_maps=False, inference_thresh=None):
         upscaled = self.upscale(x)
         
-        maps = self.entmax(upscaled, dim=1)
+        maps = self.sparsemax(upscaled, dim=1)
         
-        # if inference:
-        #     maps = (maps > 0.7).float()
+        if inference:
+            # used = maps > 1/self.num_classes
+            thresh = 1/self.num_classes if inference_thresh is None else inference_thresh
+            maps[maps < thresh] = 0
 
         logits = maps.sum(dim=(-2, -1))
-
-        pooled = x.mean(dim=(-2,-1))
-        scales = self.scaler(pooled)
-        scales = self.sigmoid(scales)
-        
-        logits =  scales * logits
         if return_maps:
             return logits, maps
         return logits

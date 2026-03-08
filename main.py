@@ -21,7 +21,7 @@ parser.add_argument('--backbone', type=str, default='resnet18', choices=['resnet
                                                                          'resnet101', 'resnet152', 'vgg11', 
                                                                          'vgg16', 'vgg19', 'mobilenetv2',
                                                                         ])
-parser.add_argument('--optimizer', type=str, default='adam', choices=['adam', 'rmsprop', 'sgd'])
+parser.add_argument('--optimizer', type=str, default='adam', choices=['adam', 'adamw', 'rmsprop', 'sgd'])
 parser.add_argument('--lr', type=float, default=1e-3)
 parser.add_argument('--lr_scheduler', type=str, default='none', choices=['cosine', 'linear', 'step', 'none'])
 parser.add_argument('--epochs', type=int, default=50)
@@ -44,7 +44,6 @@ if args.run_dir is None:
     os.makedirs(run_dir, exist_ok=True)
     args.run_dir = run_dir
     print(f"saving to {args.run_dir}")
-
 backbone = map_arg[args.backbone].to(device)
 m = CEMModelWrapper(backbone, 10, 32, device=device).to(device)
 opt = map_arg[args.optimizer](m.parameters(), lr=args.lr)
