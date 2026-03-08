@@ -50,7 +50,10 @@ def train_one_epoch(epoch : int, model : nn.Module, trainloader : DataLoader, op
  
 
         # scale loss terms
-        step_loss = lamb_ce * (ce_loss / ce_loss.detach()) + lamb_bin * (bin_loss / bin_loss.detach()) + lamb_tv * (tv_loss / tv_loss.detach())
+        eps = 1e-9
+        step_loss = (lamb_ce * (ce_loss / (ce_loss.detach() + eps)) + 
+                    lamb_bin * (bin_loss / (bin_loss.detach() + eps)) + 
+                    lamb_tv * (tv_loss / (tv_loss.detach() + eps)))
         total_loss += lamb_ce * ce_loss.detach() + lamb_bin * bin_loss.detach() + lamb_tv * tv_loss.detach()
         step_loss.backward()
         optimizer.step()
