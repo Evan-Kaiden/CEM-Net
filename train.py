@@ -12,7 +12,7 @@ import time
 
 from utils import print_row
 from viz import plot_masks_together
-from losses import ce_loss, fg_bg_contrast_loss, attn_sparsity_loss, attn_entropy_loss, tv_loss
+from losses import ce_loss_func, fg_bg_contrast_loss_func, attn_sparsity_loss_func, attn_entropy_loss_func, tv_loss_func
 
 
 def train_one_epoch(args, epoch : int, model : nn.Module, trainloader : DataLoader, optimizer : Optimizer, scheduler, device=None):
@@ -49,11 +49,11 @@ def train_one_epoch(args, epoch : int, model : nn.Module, trainloader : DataLoad
         logits = logits[:, :-1]
         abstained = maps[:, -1, :, :]
         
-        ce_loss =  ce_loss(logits, targets)
-        contrast_loss =  fg_bg_contrast_loss(maps, attn)
-        sparsity_loss =  attn_sparsity_loss(attn, target_coverage=0.25)
-        attn_entropy_loss =  attn_entropy_loss(attn)
-        tv_loss =  tv_loss(maps)
+        ce_loss =  ce_loss_func(logits, targets)
+        contrast_loss =  fg_bg_contrast_loss_func(maps, attn)
+        sparsity_loss =  attn_sparsity_loss_func(attn, target_coverage=0.25)
+        entropy_loss =  attn_entropy_loss_func(attn)
+        tv_loss =  tv_loss_func(maps)
 
 
  
@@ -61,7 +61,7 @@ def train_one_epoch(args, epoch : int, model : nn.Module, trainloader : DataLoad
                     lamb_tv * tv_loss + \
                     lamb_sparsity * sparsity_loss + \
                     lamb_contrast * contrast_loss + \
-                    lamb_entropy * attn_entropy_loss 
+                    lamb_entropy * entropy_loss 
                     
                     
         total_loss += step_loss
@@ -73,7 +73,7 @@ def train_one_epoch(args, epoch : int, model : nn.Module, trainloader : DataLoad
         metrics["tv"] += lamb_tv * tv_loss.item()
         metrics["sparsity"] += lamb_sparsity * sparsity_loss.item()
         metrics["constrast"] += lamb_contrast * contrast_loss.item()
-        metrics["entropy"] += lamb_entropy * attn_entropy_loss.item()
+        metrics["entropy"] += lamb_entropy * entropy_loss.item()
         metrics["correct"] += (logits.argmax(dim=-1) == targets).sum().item()
         metrics["total"] += targets.numel()
      
@@ -110,9 +110,9 @@ def test(args, epoch: int, model : nn.Module, testloader : DataLoader, dset, dev
 
         for images, targets in testloader:
                 images, targets = images.to(device), targets.to(device)
-                logits = model(images)#, inference=True)
+                logits = model(images)
                 logits = logits[:, :-1]
-                loss = ce_loss(logits, targets)
+                loss = ce_loss_func(logits, targets)
                 pred_labels = logits.argmax(dim=1)
 
                 correct_total += (pred_labels == targets).sum().item()

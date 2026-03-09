@@ -2,11 +2,11 @@ import torch
 import torch.nn.functional as F
 
 
-def ce_loss(logits, targets):
+def ce_loss_func(logits, targets):
     return F.cross_entropy(logits, targets)
 
 
-def fg_bg_contrast_loss(maps, attn, margin=0.3):
+def fg_bg_contrast_loss_func(maps, attn, margin=0.3):
     """
     The core anti-flood-fill loss. Forces the class distribution inside
     the attended region to differ from outside. If the model flood-fills,
@@ -29,7 +29,7 @@ def fg_bg_contrast_loss(maps, attn, margin=0.3):
     return F.relu(similarity - margin).mean()
 
 
-def attn_sparsity_loss(attn, target_coverage=0.25):
+def attn_sparsity_loss_func(attn, target_coverage=0.25):
     """
     Forces attention to cover at most target_coverage of the image.
     Without this the attention collapses to covering everything,
@@ -39,7 +39,7 @@ def attn_sparsity_loss(attn, target_coverage=0.25):
     return F.relu(mean_coverage - target_coverage).mean()
 
 
-def attn_entropy_loss(attn):
+def attn_entropy_loss_func(attn):
     """
     Pushes attention values toward 0 or 1 by minimizing entropy.
     """
@@ -48,7 +48,7 @@ def attn_entropy_loss(attn):
     return entropy.mean()
 
 
-def tv_loss(maps):
+def tv_loss_func(maps):
     """
     spatially smooth class maps are still desirable.
     Removed the attention TV — sparsity + entropy losses handle
