@@ -96,8 +96,7 @@ print(f"Training\n  Model {args.backbone}\n  Epochs {args.epochs}\n  Device {dev
 train(
     epochs=args.epochs,
     model=m,
-    trainloader=dset.train_loader,
-    testloader=dset.test_loader,
+    dset=dset,
     optimizer=opt,
     scheduler=scheduler,
     config=config,

@@ -11,6 +11,7 @@ from tqdm import tqdm
 import time
 
 from utils import print_row
+from viz import plot_masks_together
 from losses import binary_loss, mask_overlap_loss, scale_area_loss, mask_tv_loss
 
 criterion = nn.CrossEntropyLoss()
@@ -48,15 +49,7 @@ def train_one_epoch(args, epoch : int, model : nn.Module, trainloader : DataLoad
         tv_loss = mask_tv_loss(maps)
         scale_loss = scale_area_loss(scale)
  
-
-        # scale loss terms
-        eps = 1e-9
-        # step_loss = (lamb_ce * (ce_loss / (ce_loss.detach() + eps)) + 
-        #             lamb_bin * (bin_loss / (bin_loss.detach() + eps)) + 
-        #             lamb_tv * (tv_loss / (tv_loss.detach() + eps)))
-
         step_loss = lamb_ce * ce_loss + lamb_bin * bin_loss + lamb_tv * tv_loss + lamb_scale * scale_loss
-        # total_loss += lamb_ce * ce_loss.detach() + lamb_bin * bin_loss.detach() + lamb_tv * tv_loss.detach()
         total_loss += step_loss
         step_loss.backward()
         optimizer.step()
@@ -87,7 +80,7 @@ def train_one_epoch(args, epoch : int, model : nn.Module, trainloader : DataLoad
     large_map_avg = metrics["large_maps"] / metrics["map_total"]
     return acc, avg_ce, avg_bin, avg_tv, lr, small_map_avg, large_map_avg
 
-def test(args, epoch: int, model : nn.Module, testloader : DataLoader, device=None):
+def test(args, epoch: int, model : nn.Module, testloader : DataLoader, dset, device=None):
     model.eval()
     
     correct_total = 0
@@ -110,15 +103,21 @@ def test(args, epoch: int, model : nn.Module, testloader : DataLoader, device=No
 
     acc = correct_total / total
     loss = loss_total / len(testloader)
-
+    ## visualize 10 of the last batch
+    for i in range(10):
+        image = images[i:i+1]
+        logits, maps, _ = model(image, return_maps=True)
+        plot_masks_together(maps.squeeze(0), image.squeeze(0), dset, args["run_dir"], epoch, f"{i}.png")
     return loss, acc
 
-def train(epochs : int, model : nn.Module, trainloader : DataLoader, testloader: DataLoader, optimizer : Optimizer, scheduler, config, start_epoch=0, device=None):  
+def train(epochs : int, model : nn.Module, optimizer : Optimizer, dset, scheduler, config, start_epoch=0, device=None):  
+    trainloader = dset.train_loader
+    testloader = dset.test_loader
 
     for epoch in range(start_epoch, epochs):
         start_time = time.time()
         train_acc, avg_ce, avg_bin, avg_tv, lr, small_map_avg, large_map_avg = train_one_epoch(config, epoch, model, trainloader, optimizer, scheduler, device)
-        test_loss, test_acc = test(config, epoch, model, testloader, device)
+        test_loss, test_acc = test(config, epoch, model, testloader, dset, device)
         end_time = time.time()
         epoch_time = int(end_time - start_time)
         metrics = [train_acc, test_acc, avg_ce, avg_bin, avg_tv, small_map_avg, large_map_avg, lr, epoch_time]
