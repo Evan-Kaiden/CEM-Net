@@ -17,10 +17,11 @@ def mask_tv_loss(masks):
 
     return dx + dy
 
-def mask_area_loss(masks):
-    # masks are C, H, W. we want for each C to be used i.e. we don't want one class to just take the whole image space as 
-    # this would be a degenerate solution
-    return masks.view(masks.shape[0], -1).mean(dim=1).mean()
+def scale_area_loss(scale):
+    p = scale / (scale.sum(dim=(-1,-2), keepdim=True) + 1e-6)
+    L_entropy = -(p * torch.log(p + 1e-6)).sum(dim=(-1,-2)).mean()
+    L_area = scale.mean()
+    return 0.01 * L_area + 0.001 * L_entropy
 
 def mask_overlap_loss(masks):
     """

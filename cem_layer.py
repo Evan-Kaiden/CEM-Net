@@ -79,7 +79,7 @@ class EvidenceMapModule(nn.Module):
         ## add attention scaling. One attention map for all channels so we do maps * scalar before we convert to logits
         ## attention should help because now we are able to remove or scale down unimportant regions
 
-        scale = self.attention(upscaled) # [B, 1, H, W]
+        scale = self.attention(maps) # [B, 1, H, W]
         maps = maps * scale # [B, C, H, W]
 
 
@@ -90,5 +90,5 @@ class EvidenceMapModule(nn.Module):
 
         logits = maps.sum(dim=(-2, -1))
         if return_maps:
-            return logits, maps
+            return logits, maps, scale
         return logits
