@@ -35,7 +35,13 @@ class EvidenceMapModule(nn.Module):
         super().__init__()
         in_channels, in_h, in_w = size_after_backbone
         self.num_classes = num_classes
+        
         self.upscale = self._build_upsampler(in_channels, in_h, in_w, original_image_dimension, num_classes)
+        self.attention = nn.Sequential(
+            nn.Conv2d(num_classes, 1, kernel_size=1),
+            nn.Sigmoid()
+            )
+        
         self.entmax15 = entmax15
 
     def _build_upsampler(self, in_channels, in_h, in_w, target_size, num_classes):
@@ -70,6 +76,13 @@ class EvidenceMapModule(nn.Module):
         
         maps = self.entmax15(upscaled, dim=1)
         
+        ## add attention scaling. One attention map for all channels so we do maps * scalar before we convert to logits
+        ## attention should help because now we are able to remove or scale down unimportant regions
+
+        scale = self.attention(upscaled) # [B, 1, H, W]
+        maps = maps * scale # [B, C, H, W]
+
+
         if inference:
             # used = maps > 1/self.num_classes
             thresh = 1/self.num_classes if inference_thresh is None else inference_thresh
