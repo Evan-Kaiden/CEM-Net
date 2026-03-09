@@ -39,10 +39,10 @@ class EvidenceMapModule(nn.Module):
         self.num_classes = num_classes + 1
         
         self.upscale = self._build_upsampler(in_channels, in_h, in_w, original_image_dimension, num_classes + 1)
-        # self.attention = nn.Sequential(
-        #     nn.Conv2d(num_classes + 1, 1, kernel_size=1),
-        #     nn.Sigmoid()
-        #     )
+        self.attention = nn.Sequential(
+            nn.Conv2d(num_classes + 1, 1, kernel_size=1),
+            nn.Sigmoid()
+            )
         
         self.entmax15 = entmax15
 
@@ -80,8 +80,8 @@ class EvidenceMapModule(nn.Module):
         ## add attention scaling. One attention map for all channels so we do maps * scalar before we convert to logits
         ## attention should help because now we are able to remove or scale down unimportant regions
 
-        # scale = self.attention(maps) # [B, 1, H, W]
-        # maps = maps * scale # [B, C, H, W]
+        scale = self.attention(upscaled) # [B, 1, H, W]
+        maps = maps * scale # [B, C, H, W]
 
 
         if inference:
