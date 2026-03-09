@@ -37,6 +37,7 @@ def train_one_epoch(args, epoch : int, model : nn.Module, trainloader : DataLoad
     lamb_ce = args["lamb_ce"]
     lamb_tv = args["lamb_ce"]
     lamb_scale = args["lamb_scale"]
+    lamb_entropy = 0.05
 
     for images, targets in tqdm(trainloader, leave=False):
         images = images.to(device)
@@ -51,9 +52,11 @@ def train_one_epoch(args, epoch : int, model : nn.Module, trainloader : DataLoad
         bin_loss = binary_loss(maps)
         tv_loss = mask_tv_loss(maps)
         bg_loss = abstained.mean()
+        p = maps + 1e-8
+        entropy_loss = -(p * torch.log(p)).sum(dim=1).mean()
         # scale_loss = scale_area_loss(scale)
  
-        step_loss = lamb_ce * ce_loss + lamb_bin * bin_loss + lamb_tv * tv_loss + lamb_scale * bg_loss #* scale_loss
+        step_loss = lamb_ce * ce_loss + lamb_bin * bin_loss + lamb_tv * tv_loss + lamb_scale * bg_loss + lamb_entropy * entropy_loss #* scale_loss
         total_loss += step_loss
         step_loss.backward()
         optimizer.step()

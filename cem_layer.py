@@ -40,7 +40,7 @@ class EvidenceMapModule(nn.Module):
         
         self.upscale = self._build_upsampler(in_channels, in_h, in_w, original_image_dimension, num_classes + 1)
         self.attention = nn.Sequential(
-            nn.Conv2d(num_classes + 1, 1, kernel_size=1),
+            nn.Conv2d(in_channels, in_channels, kernel_size=1),
             nn.Sigmoid()
             )
         
@@ -74,22 +74,21 @@ class EvidenceMapModule(nn.Module):
         return nn.Sequential(*layers)
     
     def forward(self, x, inference=False, return_maps=False, inference_thresh=None):
+        scale = self.attention(x)
+        x = x * scale
+
+       
         upscaled = self.upscale(x)
+        maps = self.entmax15(upscaled, dim=1) 
+
+        if self.training:
+            with torch.no_grad():
+                mask = (maps.max(dim=1, keepdim=True)[0] > 0.5).float()
+                upscaled = upscaled * (1 - mask)
+                maps = self.entmax15(upscaled, dim=1)
         
-        maps = self.entmax15(upscaled, dim=1)
-        ## add attention scaling. One attention map for all channels so we do maps * scalar before we convert to logits
-        ## attention should help because now we are able to remove or scale down unimportant regions
-
-        scale = self.attention(upscaled) # [B, 1, H, W]
-        maps = maps * scale # [B, C, H, W]
-
-
-        if inference:
-            # used = maps > 1/self.num_classes
-            thresh = 1/self.num_classes if inference_thresh is None else inference_thresh
-            maps[maps < thresh] = 0
-
-        logits = maps.sum(dim=(-2, -1))
+        # logits = maps.sum(dim=(-2, -1))
+        logits = torch.logsumexp(maps * 10, dim=(-2, -1))
         if return_maps:
             return logits, maps#, scale
         return logits

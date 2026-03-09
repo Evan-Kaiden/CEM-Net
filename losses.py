@@ -12,8 +12,8 @@ def mask_tv_loss(masks):
     """
     encourages spatially contiguous regions
     """
-    dx = torch.abs(masks[:, :, 1:] - masks[:, :, :-1]).mean()
-    dy = torch.abs(masks[:, 1:, :] - masks[:, :-1, :]).mean()
+    dx = torch.abs(masks[:, :, :, 1:] - masks[:, :, :, :-1]).mean()
+    dy = torch.abs(masks[:, :, 1:, :] - masks[:, :, :-1, :]).mean()
 
     return dx + dy
 
