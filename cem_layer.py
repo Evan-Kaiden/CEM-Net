@@ -81,11 +81,11 @@ class EvidenceMapModule(nn.Module):
         upscaled = self.upscale(x)
         maps = self.entmax15(upscaled, dim=1) 
 
-        if self.training:
-            with torch.no_grad():
-                mask = (maps.max(dim=1, keepdim=True)[0] > 0.5).float()
-                upscaled = upscaled * (1 - mask)
-                maps = self.entmax15(upscaled, dim=1)
+        # if self.training:
+        #     with torch.no_grad():
+        #         mask = (maps.max(dim=1, keepdim=True)[0] > 0.5).float()
+        #         upscaled = upscaled * (1 - mask)
+        #         maps = self.entmax15(upscaled, dim=1)
         
         # logits = maps.sum(dim=(-2, -1))
         logits = torch.logsumexp(maps * 10, dim=(-2, -1))
