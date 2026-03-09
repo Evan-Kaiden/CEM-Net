@@ -6,31 +6,6 @@ import torch.nn.functional as F
 from entmax import sparsemax, entmax15
 
 class EvidenceMapModule(nn.Module):
-    """
-        Initialize the Class Evidence Map (CEM) layer.
-
-        This layer takes the feature map output of a backbone network and transforms it
-        into a class evidence map with spatial dimensions matching the original image.
-        The layer upsamples the backbone features and projects them into a map with
-        `num_classes` channels, where each channel corresponds to the spatial evidence
-        for a class. Input image original dimension should be divisible by 2.
-
-        Parameters
-        ----------
-        num_classes : int
-            Number of output classes. The final output will have this many channels.
-
-        size_after_backbone : tuple[int, int, int]
-            Shape of the feature map coming from the backbone network in the form
-            (C, H, W), where:
-            - C = number of feature channels
-            - H = feature map height
-            - W = feature map width
-
-        original_image_dimension : int
-            Spatial dimension of the original input image (assumed square).
-            The output evidence maps will be upsampled to (num_classes, original_image_dimension, original_image_dimension).
-        """
     def __init__(self, num_classes:int, size_after_backbone: tuple[int, int, int], original_image_dimension:int):
         super().__init__()
         in_channels, in_h, in_w = size_after_backbone
@@ -39,10 +14,11 @@ class EvidenceMapModule(nn.Module):
         self.num_classes = num_classes + 1
         
         self.upscale = self._build_upsampler(in_channels, in_h, in_w, original_image_dimension, num_classes + 1)
-        self.attention = nn.Sequential(
-            nn.Conv2d(in_channels, in_channels, kernel_size=1),
-            nn.Sigmoid()
-            )
+        self.attn_head = nn.Sequential(
+            nn.Conv2d(num_classes + 1, num_classes + 1, kernel_size=3, padding=1),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(num_classes + 1, 1, kernel_size=1),
+        )
         
         self.entmax15 = entmax15
 
@@ -73,22 +49,19 @@ class EvidenceMapModule(nn.Module):
 
         return nn.Sequential(*layers)
     
-    def forward(self, x, inference=False, return_maps=False, inference_thresh=None):
-        scale = self.attention(x)
-        x = x * scale
+    def forward(self, x, return_maps=False):        
 
-       
         upscaled = self.upscale(x)
         maps = self.entmax15(upscaled, dim=1) 
 
-        # if self.training:
-        #     with torch.no_grad():
-        #         mask = (maps.max(dim=1, keepdim=True)[0] > 0.5).float()
-        #         upscaled = upscaled * (1 - mask)
-        #         maps = self.entmax15(upscaled, dim=1)
-        
-        # logits = maps.sum(dim=(-2, -1))
-        logits = torch.logsumexp(maps * 10, dim=(-2, -1))
+        attn_logits = self.attn_head(upscaled)
+        attn = torch.sigmoid(attn_logits)
+
+        attended = maps * attn
+        attn_mass = attn.sum(dim=(-2, -1), keepdim=True) + 1e-6
+        logits_full = attended.sum(dim=(-2, -1)) / attn_mass.squeeze(-1).squeeze(-1)
+        logits = logits_full[:, :-1]
+
         if return_maps:
-            return logits, maps#, scale
+            return logits, maps, attn
         return logits

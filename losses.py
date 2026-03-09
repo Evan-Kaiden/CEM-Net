@@ -1,36 +1,59 @@
 import torch
+import torch.nn.functional as F
 
-def binary_loss(masks):
-    """
-    encourages values to be 0 or 1
-    """
-    # loss = (masks * (1 - masks)).pow(2).mean()
-    loss = -(masks * torch.log(masks + 1e-8)).sum(dim=1).mean()
-    return loss
 
-def mask_tv_loss(masks):
-    """
-    encourages spatially contiguous regions
-    """
-    dx = torch.abs(masks[:, :, :, 1:] - masks[:, :, :, :-1]).mean()
-    dy = torch.abs(masks[:, :, 1:, :] - masks[:, :, :-1, :]).mean()
+def ce_loss(logits, targets):
+    return F.cross_entropy(logits, targets)
 
+
+def fg_bg_contrast_loss(maps, attn, margin=0.3):
+    """
+    The core anti-flood-fill loss. Forces the class distribution inside
+    the attended region to differ from outside. If the model flood-fills,
+    fg_dist and bg_dist will be nearly identical and this fires hard.
+    """
+    B, C, H, W = maps.shape
+    attn_map = attn.squeeze(1)  # (B, H, W)
+
+    median = attn_map.flatten(1).median(dim=1).values.view(B, 1, 1)
+    fg = (attn_map > median).float()
+    bg = 1.0 - fg
+
+    fg_mass = fg.sum(dim=(-2, -1), keepdim=True).unsqueeze(1) + 1e-6
+    bg_mass = bg.sum(dim=(-2, -1), keepdim=True).unsqueeze(1) + 1e-6
+
+    fg_dist = (maps * fg.unsqueeze(1)).sum(dim=(-2, -1)) / fg_mass.squeeze()  # (B, C)
+    bg_dist = (maps * bg.unsqueeze(1)).sum(dim=(-2, -1)) / bg_mass.squeeze()  # (B, C)
+
+    similarity = F.cosine_similarity(fg_dist, bg_dist, dim=1)
+    return F.relu(similarity - margin).mean()
+
+
+def attn_sparsity_loss(attn, target_coverage=0.25):
+    """
+    Forces attention to cover at most target_coverage of the image.
+    Without this the attention collapses to covering everything,
+    which makes fg_bg_contrast degenerate (fg == bg == whole image).
+    """
+    mean_coverage = attn.mean(dim=(-2, -1))  # (B, 1)
+    return F.relu(mean_coverage - target_coverage).mean()
+
+
+def attn_entropy_loss(attn):
+    """
+    Pushes attention values toward 0 or 1 by minimizing entropy.
+    """
+    p = attn.clamp(1e-6, 1 - 1e-6)
+    entropy = -(p * p.log() + (1 - p) * (1 - p).log())
+    return entropy.mean()
+
+
+def tv_loss(maps):
+    """
+    spatially smooth class maps are still desirable.
+    Removed the attention TV — sparsity + entropy losses handle
+    attention structure better than smoothness would.
+    """
+    dx = (maps[:, :, :, 1:] - maps[:, :, :, :-1]).abs().mean()
+    dy = (maps[:, :, 1:, :] - maps[:, :, :-1, :]).abs().mean()
     return dx + dy
-
-def scale_area_loss(scale):
-    p = scale / (scale.sum(dim=(-1,-2), keepdim=True) + 1e-6)
-    L_entropy = -(p * torch.log(p + 1e-6)).sum(dim=(-1,-2)).mean()
-    L_area = scale.mean()
-    return 0.01 * L_area + 0.001 * L_entropy
-
-def mask_overlap_loss(masks):
-    """
-    encourages masks to be independent of eachother
-    """
-    K = masks.shape[0]
-    masks = masks.view(K, -1)          # (K, HW)
-
-    overlap = torch.matmul(masks, masks.T)   # (K, K)
-    overlap = overlap - torch.diag(torch.diag(overlap))  # remove self-overlap
-
-    return overlap.mean()

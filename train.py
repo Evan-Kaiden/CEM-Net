@@ -12,9 +12,8 @@ import time
 
 from utils import print_row
 from viz import plot_masks_together
-from losses import binary_loss, mask_overlap_loss, scale_area_loss, mask_tv_loss
+from losses import ce_loss, fg_bg_contrast_loss, attn_sparsity_loss, attn_entropy_loss, tv_loss
 
-criterion = nn.CrossEntropyLoss()
 
 def train_one_epoch(args, epoch : int, model : nn.Module, trainloader : DataLoader, optimizer : Optimizer, scheduler, device=None):
     model.train()
@@ -24,20 +23,21 @@ def train_one_epoch(args, epoch : int, model : nn.Module, trainloader : DataLoad
     metrics = {
         "ce": 0.0,
         "tv": 0.0,
-        "binary": 0.0,
-        "small_maps": 0.0,
-        "large_maps": 0.0,
-        "map_total": 0.0,
+        "contrast": 0.0,
+        "sparsity": 0.0,
+        "entropy": 0.0,
         "abstained": 0.0,
         "correct": 0,
         "total": 0,
     }
 
-    lamb_bin = args["lamb_bin"]
+    
     lamb_ce = args["lamb_ce"]
-    lamb_tv = args["lamb_ce"]
-    lamb_scale = args["lamb_scale"]
-    lamb_entropy = 0.05
+    lamb_tv = args["lamb_tv"]
+    lamb_entropy = args["lamb_entropy"]
+    lamb_contrast = args["lamb_contrast"]
+    lamb_sparsity = args["lamb_sparsity"]
+    
 
     for images, targets in tqdm(trainloader, leave=False):
         images = images.to(device)
@@ -45,31 +45,37 @@ def train_one_epoch(args, epoch : int, model : nn.Module, trainloader : DataLoad
 
         optimizer.zero_grad()
         
-        logits, maps = model(images, return_maps=True)   
+        logits, maps, attn = model(images, return_maps=True)   
         logits = logits[:, :-1]
         abstained = maps[:, -1, :, :]
-        ce_loss = criterion(logits, targets)
-        bin_loss = binary_loss(maps)
-        tv_loss = mask_tv_loss(maps)
-        bg_loss = abstained.mean()
-        p = maps + 1e-8
-        entropy_loss = -(p * torch.log(p)).sum(dim=1).mean()
-        # scale_loss = scale_area_loss(scale)
+        
+        ce_loss =  ce_loss(logits, targets)
+        contrast_loss =  fg_bg_contrast_loss(maps, attn)
+        sparsity_loss =  attn_sparsity_loss(attn, target_coverage=0.25)
+        attn_entropy_loss =  attn_entropy_loss(attn)
+        tv_loss =  tv_loss(maps)
+
+
  
-        step_loss = lamb_ce * ce_loss + lamb_bin * bin_loss + lamb_tv * tv_loss + lamb_scale * bg_loss + lamb_entropy * entropy_loss #* scale_loss
+        step_loss = lamb_ce * ce_loss + \
+                    lamb_tv * tv_loss + \
+                    lamb_sparsity * sparsity_loss + \
+                    lamb_contrast * contrast_loss + \
+                    lamb_entropy * attn_entropy_loss 
+                    
+                    
         total_loss += step_loss
         step_loss.backward()
         optimizer.step()
 
         metrics["abstained"] += abstained.mean().item()
-        metrics["tv"] += lamb_tv * tv_loss.item()
-        metrics["binary"] += lamb_bin * bin_loss.item()
         metrics["ce"] += ce_loss.item()
+        metrics["tv"] += lamb_tv * tv_loss.item()
+        metrics["sparsity"] += lamb_sparsity * sparsity_loss.item()
+        metrics["constrast"] += lamb_contrast * contrast_loss.item()
+        metrics["entropy"] += lamb_entropy * attn_entropy_loss.item()
         metrics["correct"] += (logits.argmax(dim=-1) == targets).sum().item()
         metrics["total"] += targets.numel()
-        metrics["small_maps"] += (maps < 0.1).sum().item()
-        metrics["large_maps"] += (maps > 0.9).sum().item()
-        metrics["map_total"] += maps.numel()
      
 
     avg_epoch_loss = total_loss / num_batches
@@ -81,13 +87,16 @@ def train_one_epoch(args, epoch : int, model : nn.Module, trainloader : DataLoad
 
     lr = optimizer.param_groups[0]["lr"]
     avg_abstain = metrics["abstained"] / num_batches
-    avg_tv = metrics['tv'] / num_batches
     avg_ce = metrics["ce"] / num_batches
-    avg_bin = metrics["binary"] / num_batches
+    avg_tv = metrics['tv'] / num_batches
+    avg_sparsity = metrics["sparsity"] / num_batches
+    avg_contrast = metrics["constrast"] / num_batches
+    avg_entropy = metrics["entropy"] / num_batches
+    
+    
     acc = metrics["correct"] / max(1, metrics["total"])
-    # small_map_avg = metrics["small_maps"] / metrics["map_total"]
-    # large_map_avg = metrics["large_maps"] / metrics["map_total"]
-    return acc, avg_ce, avg_bin, avg_tv, lr, avg_abstain # small_map_avg, large_map_avg, avg_abstain
+    
+    return acc, avg_ce, avg_tv, avg_sparsity, avg_contrast, avg_entropy, lr, avg_abstain
 
 def test(args, epoch: int, model : nn.Module, testloader : DataLoader, dset, device=None):
     model.eval()
@@ -103,7 +112,7 @@ def test(args, epoch: int, model : nn.Module, testloader : DataLoader, dset, dev
                 images, targets = images.to(device), targets.to(device)
                 logits = model(images)#, inference=True)
                 logits = logits[:, :-1]
-                loss = criterion(logits, targets)
+                loss = ce_loss(logits, targets)
                 pred_labels = logits.argmax(dim=1)
 
                 correct_total += (pred_labels == targets).sum().item()
@@ -125,11 +134,11 @@ def train(epochs : int, model : nn.Module, optimizer : Optimizer, dset, schedule
 
     for epoch in range(start_epoch, epochs):
         start_time = time.time()
-        train_acc, avg_ce, avg_bin, avg_tv, lr, avg_abstain = train_one_epoch(config, epoch, model, trainloader, optimizer, scheduler, device)
+        train_acc, avg_ce, avg_tv, avg_sparsity, avg_contrast, avg_entropy, lr, avg_abstain = train_one_epoch(config, epoch, model, trainloader, optimizer, scheduler, device)
         test_loss, test_acc = test(config, epoch, model, testloader, dset, device)
         end_time = time.time()
         epoch_time = int(end_time - start_time)
-        metrics = [train_acc, test_acc, avg_ce, avg_bin, avg_tv, avg_abstain, lr, epoch_time]
+        metrics = [train_acc, test_acc, avg_ce, avg_tv, avg_sparsity, avg_contrast, avg_entropy, avg_abstain, lr, epoch_time]
         print_row(epoch, metrics, config['run_dir'])
         
         state_dict = scheduler.state_dict() if scheduler is not None else None
