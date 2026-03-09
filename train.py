@@ -50,9 +50,10 @@ def train_one_epoch(args, epoch : int, model : nn.Module, trainloader : DataLoad
         ce_loss = criterion(logits, targets)
         bin_loss = binary_loss(maps)
         tv_loss = mask_tv_loss(maps)
+        bg_loss = abstained.mean()
         # scale_loss = scale_area_loss(scale)
  
-        step_loss = lamb_ce * ce_loss + lamb_bin * bin_loss + lamb_tv * tv_loss # + lamb_scale * scale_loss
+        step_loss = lamb_ce * ce_loss + lamb_bin * bin_loss + lamb_tv * tv_loss + lamb_scale * bg_loss #* scale_loss
         total_loss += step_loss
         step_loss.backward()
         optimizer.step()
