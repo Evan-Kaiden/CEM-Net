@@ -18,7 +18,7 @@ class CEMModelWrapper(nn.Module):
         size_after_backbone = out.shape
         self.evidence_mapper = EvidenceMapModule(num_classes, size_after_backbone, input_size)
 
-    def forward(self, x, inference=False, return_maps=False, inference_thresh=None):
+    def forward(self, x, return_maps=False):
         x = self.backbone(x)
-        x = self.evidence_mapper(x, inference=inference,return_maps=return_maps, inference_thresh=inference_thresh)
+        x = self.evidence_mapper(x, return_maps=return_maps)
         return x
