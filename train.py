@@ -11,7 +11,7 @@ from tqdm import tqdm
 import time
 
 from utils import print_row
-from losses import binary_loss, mask_overlap_loss, mask_area_loss, mask_tv_loss
+from losses import binary_loss, mask_overlap_loss, scale_area_loss, mask_tv_loss
 
 criterion = nn.CrossEntropyLoss()
 
@@ -34,6 +34,7 @@ def train_one_epoch(args, epoch : int, model : nn.Module, trainloader : DataLoad
     lamb_bin = args["lamb_bin"]
     lamb_ce = args["lamb_ce"]
     lamb_tv = args["lamb_ce"]
+    lamb_scale = args["lamb_scale"]
 
     for images, targets in tqdm(trainloader, leave=False):
         images = images.to(device)
@@ -41,10 +42,11 @@ def train_one_epoch(args, epoch : int, model : nn.Module, trainloader : DataLoad
 
         optimizer.zero_grad()
         
-        logits, maps = model(images, return_maps=True)   
+        logits, maps, scale = model(images, return_maps=True)   
         ce_loss = criterion(logits, targets)
         bin_loss = binary_loss(maps)
         tv_loss = mask_tv_loss(maps)
+        scale_loss = scale_area_loss(scale)
  
 
         # scale loss terms
@@ -53,7 +55,7 @@ def train_one_epoch(args, epoch : int, model : nn.Module, trainloader : DataLoad
         #             lamb_bin * (bin_loss / (bin_loss.detach() + eps)) + 
         #             lamb_tv * (tv_loss / (tv_loss.detach() + eps)))
 
-        step_loss = lamb_ce * ce_loss + lamb_bin * bin_loss + lamb_tv * tv_loss
+        step_loss = lamb_ce * ce_loss + lamb_bin * bin_loss + lamb_tv * tv_loss + lamb_scale * scale_loss
         # total_loss += lamb_ce * ce_loss.detach() + lamb_bin * bin_loss.detach() + lamb_tv * tv_loss.detach()
         total_loss += step_loss
         step_loss.backward()
