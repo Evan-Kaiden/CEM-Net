@@ -124,8 +124,8 @@ def test(args, epoch: int, model : nn.Module, testloader : DataLoader, dset, dev
     # visualize 10 of the last batch
     for i in range(10):
         image = images[i:i+1]
-        _, maps = model(image, return_maps=True)
-        plot_masks_together(maps.squeeze(0), image.squeeze(0), dset, args["run_dir"], epoch, f"{i}.png")
+        _, maps, attn = model(image, return_maps=True)
+        plot_masks_together(maps.squeeze(0), attn.squeeze(0), image.squeeze(0), dset, args["run_dir"], epoch, f"{i}.png")
     return loss, acc
 
 def train(epochs : int, model : nn.Module, optimizer : Optimizer, dset, scheduler, config, start_epoch=0, device=None):  

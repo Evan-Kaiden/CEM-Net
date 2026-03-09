@@ -22,10 +22,12 @@ parser.add_argument('--backbone', type=str, default='resnet18', choices=['resnet
                                                                          'vgg16', 'vgg19', 'mobilenetv2',
                                                                         ])
 
-parser.add_argument('--lamb_ce', type=float, default=100.)
-parser.add_argument('--lamb_tv', type=float, default=0.05)
-parser.add_argument('--lamb_bin', type=float, default=1)
-parser.add_argument('--lamb_scale', type=float, default=0.01)
+parser.add_argument('--lamb_ce', type=float, default=1.)
+parser.add_argument('--lamb_tv', type=float, default=0.02)
+parser.add_argument('--lamb_entropy', type=float, default=0.02)
+parser.add_argument('--lamb_contrast', type=float, default=0.3)
+parser.add_argument('--lamb_sparsity', type=float, default=0.05)
+
 
 parser.add_argument('--optimizer', type=str, default='adam', choices=['adam', 'adamw', 'rmsprop', 'sgd'])
 parser.add_argument('--lr', type=float, default=1e-3)
