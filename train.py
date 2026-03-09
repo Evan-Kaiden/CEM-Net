@@ -44,20 +44,20 @@ def train_one_epoch(args, epoch : int, model : nn.Module, trainloader : DataLoad
 
         optimizer.zero_grad()
         
-        logits, maps, scale = model(images, return_maps=True)   
+        logits, maps = model(images, return_maps=True)   
         logits = logits[:, :-1]
         abstained = maps[:, -1, :, :]
         ce_loss = criterion(logits, targets)
         bin_loss = binary_loss(maps)
         tv_loss = mask_tv_loss(maps)
-        scale_loss = scale_area_loss(scale)
+        # scale_loss = scale_area_loss(scale)
  
-        step_loss = lamb_ce * ce_loss + lamb_bin * bin_loss + lamb_tv * tv_loss + lamb_scale * scale_loss
+        step_loss = lamb_ce * ce_loss + lamb_bin * bin_loss + lamb_tv * tv_loss # + lamb_scale * scale_loss
         total_loss += step_loss
         step_loss.backward()
         optimizer.step()
 
-        metrics["abstained"] += abstained.mean()
+        metrics["abstained"] += abstained.mean().item()
         metrics["tv"] += lamb_tv * tv_loss.item()
         metrics["binary"] += lamb_bin * bin_loss.item()
         metrics["ce"] += ce_loss.item()
@@ -98,7 +98,7 @@ def test(args, epoch: int, model : nn.Module, testloader : DataLoader, dset, dev
         for images, targets in testloader:
                 images, targets = images.to(device), targets.to(device)
                 logits = model(images)#, inference=True)
-
+                logits = logits[:, :-1]
                 loss = criterion(logits, targets)
                 pred_labels = logits.argmax(dim=1)
 
@@ -108,10 +108,10 @@ def test(args, epoch: int, model : nn.Module, testloader : DataLoader, dset, dev
 
     acc = correct_total / total
     loss = loss_total / len(testloader)
-    ## visualize 10 of the last batch
+    # visualize 10 of the last batch
     for i in range(10):
         image = images[i:i+1]
-        logits, maps, _ = model(image, return_maps=True)
+        _, maps = model(image, return_maps=True)
         plot_masks_together(maps.squeeze(0), image.squeeze(0), dset, args["run_dir"], epoch, f"{i}.png")
     return loss, acc
 
