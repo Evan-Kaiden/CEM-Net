@@ -28,6 +28,7 @@ def train_one_epoch(args, epoch : int, model : nn.Module, trainloader : DataLoad
         "small_maps": 0.0,
         "large_maps": 0.0,
         "map_total": 0.0,
+        "abstained": 0.0,
         "correct": 0,
         "total": 0,
     }
@@ -44,6 +45,8 @@ def train_one_epoch(args, epoch : int, model : nn.Module, trainloader : DataLoad
         optimizer.zero_grad()
         
         logits, maps, scale = model(images, return_maps=True)   
+        logits = logits[:, :-1]
+        abstained = maps[:, -1, :, :]
         ce_loss = criterion(logits, targets)
         bin_loss = binary_loss(maps)
         tv_loss = mask_tv_loss(maps)
@@ -54,6 +57,7 @@ def train_one_epoch(args, epoch : int, model : nn.Module, trainloader : DataLoad
         step_loss.backward()
         optimizer.step()
 
+        metrics["abstained"] += abstained.mean()
         metrics["tv"] += lamb_tv * tv_loss.item()
         metrics["binary"] += lamb_bin * bin_loss.item()
         metrics["ce"] += ce_loss.item()
@@ -72,13 +76,14 @@ def train_one_epoch(args, epoch : int, model : nn.Module, trainloader : DataLoad
             scheduler.step()
 
     lr = optimizer.param_groups[0]["lr"]
+    avg_abstain = metrics["abstained"] / num_batches
     avg_tv = metrics['tv'] / num_batches
     avg_ce = metrics["ce"] / num_batches
     avg_bin = metrics["binary"] / num_batches
     acc = metrics["correct"] / max(1, metrics["total"])
-    small_map_avg = metrics["small_maps"] / metrics["map_total"]
-    large_map_avg = metrics["large_maps"] / metrics["map_total"]
-    return acc, avg_ce, avg_bin, avg_tv, lr, small_map_avg, large_map_avg
+    # small_map_avg = metrics["small_maps"] / metrics["map_total"]
+    # large_map_avg = metrics["large_maps"] / metrics["map_total"]
+    return acc, avg_ce, avg_bin, avg_tv, lr, avg_abstain # small_map_avg, large_map_avg, avg_abstain
 
 def test(args, epoch: int, model : nn.Module, testloader : DataLoader, dset, device=None):
     model.eval()
@@ -116,11 +121,11 @@ def train(epochs : int, model : nn.Module, optimizer : Optimizer, dset, schedule
 
     for epoch in range(start_epoch, epochs):
         start_time = time.time()
-        train_acc, avg_ce, avg_bin, avg_tv, lr, small_map_avg, large_map_avg = train_one_epoch(config, epoch, model, trainloader, optimizer, scheduler, device)
+        train_acc, avg_ce, avg_bin, avg_tv, lr, avg_abstain = train_one_epoch(config, epoch, model, trainloader, optimizer, scheduler, device)
         test_loss, test_acc = test(config, epoch, model, testloader, dset, device)
         end_time = time.time()
         epoch_time = int(end_time - start_time)
-        metrics = [train_acc, test_acc, avg_ce, avg_bin, avg_tv, small_map_avg, large_map_avg, lr, epoch_time]
+        metrics = [train_acc, test_acc, avg_ce, avg_bin, avg_tv, avg_abstain, lr, epoch_time]
         print_row(epoch, metrics, config['run_dir'])
         
         state_dict = scheduler.state_dict() if scheduler is not None else None

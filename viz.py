@@ -34,7 +34,7 @@ def plot_masks_together(mask, image, dset, runs_dir, epoch, save_name):
     plt.imshow(image_up)
 
     legend_handles = []
-    for i in range(mask_up.shape[0]):
+    for i in range(mask_up.shape[0] - 1): # skip NONE channel
         binary = (argmax_map == i).astype(float) 
 
         if np.any(binary):

@@ -34,11 +34,13 @@ class EvidenceMapModule(nn.Module):
     def __init__(self, num_classes:int, size_after_backbone: tuple[int, int, int], original_image_dimension:int):
         super().__init__()
         in_channels, in_h, in_w = size_after_backbone
-        self.num_classes = num_classes
+
+        # add a NONE class with +1
+        self.num_classes = num_classes + 1
         
-        self.upscale = self._build_upsampler(in_channels, in_h, in_w, original_image_dimension, num_classes)
+        self.upscale = self._build_upsampler(in_channels, in_h, in_w, original_image_dimension, num_classes + 1)
         self.attention = nn.Sequential(
-            nn.Conv2d(num_classes, 1, kernel_size=1),
+            nn.Conv2d(num_classes + 1, 1, kernel_size=1),
             nn.Sigmoid()
             )
         
@@ -75,7 +77,6 @@ class EvidenceMapModule(nn.Module):
         upscaled = self.upscale(x)
         
         maps = self.entmax15(upscaled, dim=1)
-        
         ## add attention scaling. One attention map for all channels so we do maps * scalar before we convert to logits
         ## attention should help because now we are able to remove or scale down unimportant regions
 
