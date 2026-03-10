@@ -74,4 +74,4 @@ def masking_consistency_loss(model, images, logits, attn, targets):
     masked_score   = torch.sigmoid(masked_logits)[torch.arange(B), targets]
 
     drop = original_score - masked_score
-    return -drop.mean()
+    return -drop.mean() 
