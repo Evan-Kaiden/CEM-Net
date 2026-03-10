@@ -59,16 +59,19 @@ def tv_loss_func(maps):
     return dx + dy
 
 def masking_consistency_loss(model, images, logits, attn, targets):
-    B = images.shape[0]
+    B, _, H, W = images.shape
 
-    masked_logits = model.forward_masked(images, attn.detach())
+    attn_up   = F.interpolate(attn, size=(H, W), mode='bilinear', align_corners=False)
+    threshold = attn_up.flatten(2).mean(dim=2, keepdim=True).unsqueeze(-1)
+    fg        = (attn_up > threshold).float()
+    masked_images = images * (1.0 - fg)
 
-    # probabilities instead of raw logits
-    original_probs = F.softmax(logits, dim=1)
-    masked_probs   = F.softmax(masked_logits, dim=1)
+    with torch.no_grad():
+        masked_features = model.backbone(masked_images)
+    masked_logits = model.evidence_mapper(masked_features)
 
-    original_score = original_probs[torch.arange(B), targets]  # (B,)
-    masked_score   = masked_probs[torch.arange(B), targets]     # (B,)
+    original_score = torch.sigmoid(logits)[torch.arange(B), targets]
+    masked_score   = torch.sigmoid(masked_logits)[torch.arange(B), targets]
 
     drop = original_score - masked_score
     return -drop.mean()
