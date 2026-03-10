@@ -26,7 +26,7 @@ def train_one_epoch(args, epoch : int, model : nn.Module, trainloader : DataLoad
         "contrast": 0.0,
         "sparsity": 0.0,
         "entropy": 0.0,
-        "abstained": 0.0,
+        "bg_percent": 0.0,
         "correct": 0,
         "total": 0,
     }
@@ -46,7 +46,7 @@ def train_one_epoch(args, epoch : int, model : nn.Module, trainloader : DataLoad
         optimizer.zero_grad()
         
         logits, maps, attn = model(images, return_maps=True)   
-        abstained = maps[:, -1, :, :]
+        bg_percent = (maps.argmax(dim=1) == maps.shape[1] - 1).float().mean().item()
         
         ce_loss =  ce_loss_func(logits, targets)
         contrast_loss =  fg_bg_contrast_loss_func(maps, attn)
@@ -63,15 +63,15 @@ def train_one_epoch(args, epoch : int, model : nn.Module, trainloader : DataLoad
                     lamb_entropy * entropy_loss 
                     
                     
-        total_loss += step_loss
+        total_loss += step_loss.item()
         step_loss.backward()
         optimizer.step()
 
-        metrics["abstained"] += abstained.mean().item()
+        metrics["bg_percent"] += bg_percent
         metrics["ce"] += ce_loss.item()
         metrics["tv"] += lamb_tv * tv_loss.item()
         metrics["sparsity"] += lamb_sparsity * sparsity_loss.item()
-        metrics["constrast"] += lamb_contrast * contrast_loss.item()
+        metrics["contrast"] += lamb_contrast * contrast_loss.item()
         metrics["entropy"] += lamb_entropy * entropy_loss.item()
         metrics["correct"] += (logits.argmax(dim=-1) == targets).sum().item()
         metrics["total"] += targets.numel()
@@ -85,17 +85,17 @@ def train_one_epoch(args, epoch : int, model : nn.Module, trainloader : DataLoad
             scheduler.step()
 
     lr = optimizer.param_groups[0]["lr"]
-    avg_abstain = metrics["abstained"] / num_batches
+    avg_bg = metrics["bg_percent"] / num_batches
     avg_ce = metrics["ce"] / num_batches
     avg_tv = metrics['tv'] / num_batches
     avg_sparsity = metrics["sparsity"] / num_batches
-    avg_contrast = metrics["constrast"] / num_batches
+    avg_contrast = metrics["contrast"] / num_batches
     avg_entropy = metrics["entropy"] / num_batches
     
     
     acc = metrics["correct"] / max(1, metrics["total"])
     
-    return acc, avg_ce, avg_tv, avg_sparsity, avg_contrast, avg_entropy, lr, avg_abstain
+    return acc, avg_ce, avg_tv, avg_sparsity, avg_contrast, avg_entropy, lr, avg_bg
 
 def test(args, epoch: int, model : nn.Module, testloader : DataLoader, dset, device=None):
     model.eval()
@@ -132,11 +132,11 @@ def train(epochs : int, model : nn.Module, optimizer : Optimizer, dset, schedule
 
     for epoch in range(start_epoch, epochs):
         start_time = time.time()
-        train_acc, avg_ce, avg_tv, avg_sparsity, avg_contrast, avg_entropy, lr, avg_abstain = train_one_epoch(config, epoch, model, trainloader, optimizer, scheduler, device)
+        train_acc, avg_ce, avg_tv, avg_sparsity, avg_contrast, avg_entropy, lr, avg_bg = train_one_epoch(config, epoch, model, trainloader, optimizer, scheduler, device)
         test_loss, test_acc = test(config, epoch, model, testloader, dset, device)
         end_time = time.time()
         epoch_time = int(end_time - start_time)
-        metrics = [train_acc, test_acc, avg_ce, avg_tv, avg_sparsity, avg_contrast, avg_entropy, avg_abstain, lr, epoch_time]
+        metrics = [train_acc, test_acc, avg_ce, avg_tv, avg_sparsity, avg_contrast, avg_entropy, avg_bg, lr, epoch_time]
         print_row(epoch, metrics, config['run_dir'])
         
         state_dict = scheduler.state_dict() if scheduler is not None else None

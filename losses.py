@@ -13,17 +13,17 @@ def fg_bg_contrast_loss_func(maps, attn, margin=0.3):
     fg_dist and bg_dist will be nearly identical and this fires hard.
     """
     B, C, H, W = maps.shape
-    attn_map = attn.squeeze(1)  # (B, H, W)
+    attn_map = attn.squeeze(1)
 
     median = attn_map.flatten(1).median(dim=1).values.view(B, 1, 1)
     fg = (attn_map > median).float()
     bg = 1.0 - fg
 
-    fg_mass = fg.sum(dim=(-2, -1), keepdim=True).unsqueeze(1) + 1e-6
-    bg_mass = bg.sum(dim=(-2, -1), keepdim=True).unsqueeze(1) + 1e-6
+    fg_mass = fg.sum(dim=(-2, -1)).view(B, 1) + 1e-6 
+    bg_mass = bg.sum(dim=(-2, -1)).view(B, 1) + 1e-6 
 
-    fg_dist = (maps * fg.unsqueeze(1)).sum(dim=(-2, -1)) / fg_mass.squeeze()  # (B, C)
-    bg_dist = (maps * bg.unsqueeze(1)).sum(dim=(-2, -1)) / bg_mass.squeeze()  # (B, C)
+    fg_dist = (maps * fg.unsqueeze(1)).sum(dim=(-2, -1)) / fg_mass
+    bg_dist = (maps * bg.unsqueeze(1)).sum(dim=(-2, -1)) / bg_mass
 
     similarity = F.cosine_similarity(fg_dist, bg_dist, dim=1)
     return F.relu(similarity - margin).mean()
