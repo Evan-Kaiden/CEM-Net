@@ -59,36 +59,16 @@ def tv_loss_func(maps):
     return dx + dy
 
 def masking_consistency_loss(model, images, logits, attn, targets):
-    """
-    If attention is meaningful, masking the attended region should hurt
-    the prediction for the correct class. Forces attention away from
-    shortcuts like image borders.
-    
-    Runs a second forward pass through evidence_mapper only (backbone
-    features are reused to save compute).
-    """
-    B, _, H, W = images.shape
+    B = images.shape[0]
 
-    # upsample attention to image resolution for masking
-    attn_up = F.interpolate(attn, size=(H, W), mode='bilinear', align_corners=False)
-    
-    # hard binary mask of attended region
-    threshold = attn_up.flatten(2).mean(dim=2, keepdim=True).unsqueeze(-1)
-    fg = (attn_up > threshold).float()  # (B, 1, H, W)
+    masked_logits = model.forward_masked(images, attn.detach())
 
-    # mask out the attended region from the input image
-    masked_images = images * (1.0 - fg)
+    # probabilities instead of raw logits
+    original_probs = F.softmax(logits, dim=1)
+    masked_probs   = F.softmax(masked_logits, dim=1)
 
-    # second forward pass — backbone + evidence_mapper on masked image
-    # no grad through the masked path so it only trains the attention
-    with torch.no_grad():
-        masked_features = model.backbone(masked_images)
-    masked_logits = model.evidence_mapper(masked_features)  # grad flows here
-
-    # correct class score should DROP when attended region is removed
-    original_score = logits[torch.arange(B), targets]           # (B,)
-    masked_score   = masked_logits[torch.arange(B), targets]    # (B,)
+    original_score = original_probs[torch.arange(B), targets]  # (B,)
+    masked_score   = masked_probs[torch.arange(B), targets]     # (B,)
 
     drop = original_score - masked_score
-    # if drop is small, attention wasn't important — penalise
-    return F.relu(1.0 - drop).mean()
+    return -drop.mean()
