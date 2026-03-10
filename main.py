@@ -39,6 +39,7 @@ parser.add_argument('--image_size', type=int, default=32)
 parser.add_argument('--batch_size', type=int, default=32)
 parser.add_argument('--dataset', type=str, default='cifar10', choices=['cifar10', 'cifar100', 'stl10'])
 parser.add_argument('--run_dir', type=str)
+parser.add_argument('--pretrained', action='store_true', default=True)
 args = parser.parse_args()
 
 
@@ -54,11 +55,17 @@ if args.run_dir is None:
     os.makedirs(run_dir, exist_ok=True)
     args.run_dir = run_dir
     print(f"saving to {args.run_dir}")
-backbone = map_arg[args.backbone].to(device)
-m = CEMModelWrapper(backbone, 10, 32, device=device).to(device)
+
+
+dset = get_dataloader(args.dataset, args.batch_size)
+
+img_size = next(iter(dset.train_loader))[0].size(-1).item()
+num_class = len(dset.classes)
+backbone = map_arg[args.backbone](pretrained=args.pretrained).to(device)
+m = CEMModelWrapper(backbone, num_class, img_size, device=device).to(device)
 opt = map_arg[args.optimizer](m.parameters(), lr=args.lr)
 scheduler = utils.get_scheduler(map_arg, opt, args.lr_scheduler, args.epochs, args.lr)
-dset = get_dataloader(args.dataset, args.batch_size)
+
 
 config = vars(args)
 
