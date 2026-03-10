@@ -12,7 +12,7 @@ import time
 
 from utils import print_row
 from viz import plot_masks_together
-from losses import ce_loss_func, fg_bg_contrast_loss_func, attn_sparsity_loss_func, attn_entropy_loss_func, tv_loss_func
+from losses import ce_loss_func, fg_bg_contrast_loss_func, attn_sparsity_loss_func, attn_entropy_loss_func, tv_loss_func, masking_consistency_loss
 
 
 def train_one_epoch(args, epoch : int, model : nn.Module, trainloader : DataLoader, optimizer : Optimizer, scheduler, device=None):
@@ -26,6 +26,7 @@ def train_one_epoch(args, epoch : int, model : nn.Module, trainloader : DataLoad
         "contrast": 0.0,
         "sparsity": 0.0,
         "entropy": 0.0,
+        "masking": 0.0,
         "bg_percent": 0.0,
         "correct": 0,
         "total": 0,
@@ -37,6 +38,8 @@ def train_one_epoch(args, epoch : int, model : nn.Module, trainloader : DataLoad
     lamb_entropy = args["lamb_entropy"]
     lamb_contrast = args["lamb_contrast"]
     lamb_sparsity = args["lamb_sparsity"]
+    lamb_masking  = args["lamb_masking"] 
+
     
 
     for images, targets in tqdm(trainloader, leave=False):
@@ -53,14 +56,16 @@ def train_one_epoch(args, epoch : int, model : nn.Module, trainloader : DataLoad
         sparsity_loss =  attn_sparsity_loss_func(attn, target_coverage=0.25)
         entropy_loss =  attn_entropy_loss_func(attn)
         tv_loss =  tv_loss_func(maps)
+        mask_loss = masking_consistency_loss(model, images, logits, attn, targets)
 
 
  
-        step_loss = lamb_ce * ce_loss + \
-                    lamb_tv * tv_loss + \
-                    lamb_sparsity * sparsity_loss + \
-                    lamb_contrast * contrast_loss + \
-                    lamb_entropy * entropy_loss 
+        step_loss = (lamb_ce       * ce_loss
+                   + lamb_tv       * tv_loss
+                   + lamb_sparsity * sparsity_loss
+                   + lamb_contrast * contrast_loss
+                   + lamb_entropy  * entropy_loss
+                   + lamb_masking  * mask_loss)
                     
                     
         total_loss += step_loss.item()
@@ -73,6 +78,7 @@ def train_one_epoch(args, epoch : int, model : nn.Module, trainloader : DataLoad
         metrics["sparsity"] += lamb_sparsity * sparsity_loss.item()
         metrics["contrast"] += lamb_contrast * contrast_loss.item()
         metrics["entropy"] += lamb_entropy * entropy_loss.item()
+        metrics["masking"]    += lamb_masking  * mask_loss.item()
         metrics["correct"] += (logits.argmax(dim=-1) == targets).sum().item()
         metrics["total"] += targets.numel()
      
@@ -91,11 +97,12 @@ def train_one_epoch(args, epoch : int, model : nn.Module, trainloader : DataLoad
     avg_sparsity = metrics["sparsity"] / num_batches
     avg_contrast = metrics["contrast"] / num_batches
     avg_entropy = metrics["entropy"] / num_batches
+    avg_masking  = metrics["masking"] / num_batches
     
     
     acc = metrics["correct"] / max(1, metrics["total"])
     
-    return acc, avg_ce, avg_tv, avg_sparsity, avg_contrast, avg_entropy, lr, avg_bg
+    return acc, avg_ce, avg_tv, avg_sparsity, avg_contrast, avg_entropy, avg_masking, lr, avg_bg
 
 def test(args, epoch: int, model : nn.Module, testloader : DataLoader, dset, device=None):
     model.eval()
@@ -132,11 +139,11 @@ def train(epochs : int, model : nn.Module, optimizer : Optimizer, dset, schedule
 
     for epoch in range(start_epoch, epochs):
         start_time = time.time()
-        train_acc, avg_ce, avg_tv, avg_sparsity, avg_contrast, avg_entropy, lr, avg_bg = train_one_epoch(config, epoch, model, trainloader, optimizer, scheduler, device)
+        train_acc, avg_ce, avg_tv, avg_sparsity, avg_contrast, avg_entropy, avg_masking, lr, avg_bg = train_one_epoch(config, epoch, model, trainloader, optimizer, scheduler, device)
         test_loss, test_acc = test(config, epoch, model, testloader, dset, device)
         end_time = time.time()
         epoch_time = int(end_time - start_time)
-        metrics = [train_acc, test_acc, avg_ce, avg_tv, avg_sparsity, avg_contrast, avg_entropy, avg_bg, lr, epoch_time]
+        metrics = [train_acc, test_acc, avg_ce, avg_tv, avg_sparsity, avg_contrast, avg_entropy, avg_masking, avg_bg, lr, epoch_time]
         print_row(epoch, metrics, config['run_dir'])
         
         state_dict = scheduler.state_dict() if scheduler is not None else None

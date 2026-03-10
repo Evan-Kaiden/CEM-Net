@@ -13,12 +13,12 @@ def get_scheduler(map_arg, optimizer, scheduler, epochs, lr):
     return scheduler
 
 def print_row(epoch, metrics_vals, run_dir):
-    metrics = ('epoch', 'train acc %', 'test acc %', 'ce', 'tv', 'sparsity', 'contrast', 'entropy', 'background', 'lr', 'epoch time')
+    metrics = ('epoch', 'train acc %', 'test acc %', 'ce', 'tv', 'sparsity', 'contrast', 'entropy', 'masking', 'background', 'lr', 'epoch time')
     cell_size = max(len(m) for m in metrics)
     cell_size +=  cell_size % 2 + 1
 
     cell_top = '-' * cell_size + '+'
-    row_top = '+' + cell_top * 10
+    row_top = '+' + cell_top * 13
 
     log_path = os.path.join(run_dir, "log.txt")
     output_lines = []
