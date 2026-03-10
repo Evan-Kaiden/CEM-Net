@@ -104,7 +104,13 @@ torch.save({
 }, state_path)
 
 print(f"Training\n  Model {args.backbone}\n  Epochs {args.epochs}\n  Device {device}")
+print(args.pretrained)
 
+# 2. confirm feature map size coming out of backbone
+with torch.no_grad():
+    dummy = torch.zeros(1, 3, img_size, img_size).to(device)
+    features = m.backbone(dummy)
+    print(features.shape)  # should be (1, 256, 12, 12) for layer3 exit
 train(
     epochs=args.epochs,
     model=m,
