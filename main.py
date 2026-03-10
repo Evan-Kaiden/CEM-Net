@@ -27,7 +27,7 @@ parser.add_argument('--lamb_tv', type=float, default=0.02)
 parser.add_argument('--lamb_contrast', type=float, default=0.3)
 
 parser.add_argument('--lamb_entropy', type=float, default=0.05)
-parser.add_argument('--lamb_sparsity', type=float, default=0.15)
+parser.add_argument('--lamb_sparsity', type=float, default=0.1)
 parser.add_argument('--lamb_masking', type=float, default=1.)
 
 
