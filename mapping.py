@@ -31,5 +31,4 @@ map_arg = {
 
 def _load_backbone(model_fn, weights, pretrained):
     model = model_fn(weights=weights if pretrained else None)
-    # strip final FC and avgpool — return spatial features
-    return nn.Sequential(*list(model.children())[:-3])
+    return nn.Sequential(*list(model.children())[:-2])

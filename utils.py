@@ -18,7 +18,7 @@ def print_row(epoch, metrics_vals, run_dir):
     cell_size +=  cell_size % 2 + 1
 
     cell_top = '-' * cell_size + '+'
-    row_top = '+' + cell_top * 13
+    row_top = '+' + cell_top * 12
 
     log_path = os.path.join(run_dir, "log.txt")
     output_lines = []

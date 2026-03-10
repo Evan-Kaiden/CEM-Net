@@ -12,12 +12,14 @@ class EvidenceMapModule(nn.Module):
 
         # add a NONE class with +1
         self.num_classes = num_classes + 1
-        
+        self.original_image_dimension = original_image_dimension
         self.upscale = self._build_upsampler(in_channels, in_h, in_w, original_image_dimension, num_classes + 1)
         self.attn_head = nn.Sequential(
-            nn.Conv2d(num_classes + 1, num_classes + 1, kernel_size=3, padding=1),
+            nn.Conv2d(in_channels, in_channels // 2, kernel_size=3, padding=1),
             nn.ReLU(inplace=True),
-            nn.Conv2d(num_classes + 1, 1, kernel_size=1),
+            nn.Conv2d(in_channels // 2, in_channels // 4, kernel_size=3, padding=1),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(in_channels // 4, 1, kernel_size=1),
         )
         
         self.entmax15 = entmax15
@@ -54,8 +56,14 @@ class EvidenceMapModule(nn.Module):
         upscaled = self.upscale(x)
         maps = self.entmax15(upscaled, dim=1) 
 
-        attn_logits = self.attn_head(upscaled)
-        attn = torch.sigmoid(attn_logits)
+        attn_small = self.attn_head(x)
+        attn = F.interpolate(
+            attn_small,
+            size=(self.original_image_dimension, self.original_image_dimension),
+            mode='bilinear',
+            align_corners=False
+        )
+        attn = torch.sigmoid(attn)  
 
         attended = maps * attn
         attn_mass = attn.sum(dim=(-2, -1), keepdim=True) + 1e-6

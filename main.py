@@ -104,7 +104,6 @@ torch.save({
 }, state_path)
 
 print(f"Training\n  Model {args.backbone}\n  Epochs {args.epochs}\n  Device {device}")
-print(args.pretrained)
 
 # 2. confirm feature map size coming out of backbone
 with torch.no_grad():
