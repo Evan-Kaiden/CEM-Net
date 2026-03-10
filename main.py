@@ -43,6 +43,7 @@ parser.add_argument('--pretrained', action='store_true', default=True)
 args = parser.parse_args()
 
 
+
 device = "cpu"
 if torch.cuda.is_available():
     device = "cuda"
