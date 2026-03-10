@@ -37,7 +37,7 @@ parser.add_argument('--lr_scheduler', type=str, default='none', choices=['cosine
 parser.add_argument('--epochs', type=int, default=50)
 parser.add_argument('--image_size', type=int, default=32)
 parser.add_argument('--batch_size', type=int, default=32)
-parser.add_argument('--dataset', type=str, default='cifar10', choices=['cifar10', 'cifar100'])
+parser.add_argument('--dataset', type=str, default='cifar10', choices=['cifar10', 'cifar100', 'stl10'])
 parser.add_argument('--run_dir', type=str)
 args = parser.parse_args()
 

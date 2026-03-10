@@ -8,6 +8,8 @@ def get_dataloader(dataset, batch_size):
         return Cifar10DataSet(batch_size)
     if dataset == "cifar100":
         return Cifar100DataSet(batch_size)
+    if dataset == "stl10":
+        return STL10DataSet(batch_size)
     else:
         raise NotImplementedError
     
@@ -67,6 +69,36 @@ class Cifar100DataSet():
 
         self.train_loader = torch.utils.data.DataLoader(
             self.trainset, batch_size=self.batch_size, shuffle=False
+        )
+
+        self.classes = self.trainset.classes
+
+
+class STL10DataSet():
+    def __init__(self, batch_size):
+        self.batch_size = batch_size
+        self.mean = [0.485, 0.456, 0.406]
+        self.std  = [0.229, 0.224, 0.225]
+
+        self.transform = transforms.Compose([
+            transforms.ToTensor(),
+            transforms.Normalize(mean=self.mean, std=self.std)
+        ])
+
+        self.trainset = torchvision.datasets.STL10(
+            root="./data", split="train", download=True, transform=self.transform
+        )
+
+        self.testset = torchvision.datasets.STL10(
+            root="./data", split="test", download=True, transform=self.transform
+        )
+
+        self.train_loader = torch.utils.data.DataLoader(
+            self.trainset, batch_size=self.batch_size, shuffle=True
+        )
+
+        self.test_loader = torch.utils.data.DataLoader(
+            self.testset, batch_size=self.batch_size, shuffle=False
         )
 
         self.classes = self.trainset.classes
