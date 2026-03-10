@@ -54,7 +54,7 @@ class EvidenceMapModule(nn.Module):
     def forward(self, x, return_maps=False):        
 
         upscaled = self.upscale(x)
-        maps = self.entmax15(upscaled, dim=1) 
+        maps = F.softmax(upscaled, dim=1) 
 
         attn_small = self.attn_head(x)
         attn = F.interpolate(
