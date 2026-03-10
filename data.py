@@ -85,8 +85,42 @@ class STL10DataSet():
             transforms.Normalize(mean=self.mean, std=self.std)
         ])
 
+        self.train_transform = transforms.Compose([
+            transforms.Resize((256, 256)),
+
+            # random spatial variation
+            transforms.RandomResizedCrop(224, scale=(0.6, 1.0)),
+            transforms.RandomHorizontalFlip(p=0.5),
+
+            # small geometric changes
+            transforms.RandomRotation(10),
+
+            # color perturbation (important for preventing color shortcuts)
+            transforms.ColorJitter(
+                brightness=0.3,
+                contrast=0.3,
+                saturation=0.3,
+                hue=0.05
+            ),
+
+            # occasionally convert to grayscale to prevent color reliance
+            transforms.RandomGrayscale(p=0.1),
+
+            transforms.ToTensor(),
+
+            # randomly hide regions (VERY useful for forcing broader attention)
+            transforms.RandomErasing(
+                p=0.25,
+                scale=(0.02, 0.2),
+                ratio=(0.3, 3.3),
+                value="random"
+            ),
+
+            transforms.Normalize(mean=self.mean, std=self.std)
+        ])
+
         self.trainset = torchvision.datasets.STL10(
-            root="./data", split="train", download=True, transform=self.transform
+            root="./data", split="train", download=True, transform=self.train_transform
         )
 
         self.testset = torchvision.datasets.STL10(

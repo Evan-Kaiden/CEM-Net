@@ -14,13 +14,6 @@ class EvidenceMapModule(nn.Module):
         self.num_classes = num_classes + 1
         self.original_image_dimension = original_image_dimension
         self.upscale = self._build_upsampler(in_channels, in_h, in_w, original_image_dimension, num_classes + 1)
-        self.attn_head = nn.Sequential(
-            nn.Conv2d(in_channels, in_channels // 2, kernel_size=3, padding=1),
-            nn.ReLU(inplace=True),
-            nn.Conv2d(in_channels // 2, in_channels // 4, kernel_size=3, padding=1),
-            nn.ReLU(inplace=True),
-            nn.Conv2d(in_channels // 4, 1, kernel_size=1),
-        )
         
         self.entmax15 = entmax15
 
@@ -51,23 +44,13 @@ class EvidenceMapModule(nn.Module):
 
         return nn.Sequential(*layers)
     
-    def forward(self, x, return_maps=False):        
-
+    def forward(self, x, attn, return_maps=False):
         upscaled = self.upscale(x)
-        maps = F.softmax(upscaled, dim=1) 
-
-        attn_small = self.attn_head(x)
-        attn = F.interpolate(
-            attn_small,
-            size=(self.original_image_dimension, self.original_image_dimension),
-            mode='bilinear',
-            align_corners=False
-        )
-        attn = torch.sigmoid(attn)  
+        maps = self.entmax15(upscaled, dim=1)
 
         attended = maps * attn
-        attn_mass = attn.sum(dim=(-2, -1), keepdim=True) + 1e-6
-        logits_full = attended.sum(dim=(-2, -1)) / attn_mass.squeeze(-1).squeeze(-1)
+        attn_mass = attn.sum(dim=(-2,-1), keepdim=True) + 1e-6
+        logits_full = attended.sum(dim=(-2,-1)) / attn_mass.squeeze(-1).squeeze(-1)
         logits = logits_full[:, :-1]
 
         if return_maps:
