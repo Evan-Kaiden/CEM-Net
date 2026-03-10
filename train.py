@@ -51,17 +51,11 @@ def train_one_epoch(args, epoch, model, trainloader, optimizer, scheduler, devic
             ce = ce_loss_func(logits, targets)
             tv = tv_loss_func(maps)
             # masking = masking_consistency_loss(model, images, logits, attn, targets)
-            pred_class = logits.argmax(dim=1)   # (B)
-
-            maps_soft = maps.softmax(dim=1)     # ensure probabilities
-            pred_masks = maps_soft[torch.arange(maps.size(0)), pred_class]  # (B,H,W)
-
-            area_loss = pred_masks.mean()
             loss = (args["lamb_ce"] * ce
                   + args["lamb_tv"] * tv
                 #   + args["lamb_masking"] * masking
                   + 0.1 * deletion_loss(logits, maps, images, model)
-                  + 0.1 * area_loss)
+                  - 0.1 * bg_percent)
 
             metrics["tv"] += args["lamb_tv"] * tv.item()
             metrics["masking"] += 0 # args["lamb_masking"] * masking.item()
