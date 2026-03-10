@@ -46,7 +46,6 @@ def train_one_epoch(args, epoch : int, model : nn.Module, trainloader : DataLoad
         optimizer.zero_grad()
         
         logits, maps, attn = model(images, return_maps=True)   
-        logits = logits[:, :-1]
         abstained = maps[:, -1, :, :]
         
         ce_loss =  ce_loss_func(logits, targets)
@@ -111,7 +110,6 @@ def test(args, epoch: int, model : nn.Module, testloader : DataLoader, dset, dev
         for images, targets in testloader:
                 images, targets = images.to(device), targets.to(device)
                 logits = model(images)
-                logits = logits[:, :-1]
                 loss = ce_loss_func(logits, targets)
                 pred_labels = logits.argmax(dim=1)
 
