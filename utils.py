@@ -12,41 +12,35 @@ def get_scheduler(map_arg, optimizer, scheduler, epochs, lr):
     
     return scheduler
 
-def print_row(epoch, metrics_vals, run_dir):
-    metrics = ('epoch', 'train acc %', 'test acc %', 'ce', 'tv', 'sparsity', 'contrast', 'entropy', 'masking', 'background', 'lr', 'epoch time')
-    cell_size = max(len(m) for m in metrics)
-    cell_size +=  cell_size % 2 + 1
+
+def print_row(epoch, metrics_vals, metrics_names, run_dir, print_header=False):
+    cols = ['epoch'] + list(metrics_names)
+    num_cols = len(cols)
+    cell_size = max(len(m) for m in cols)
+    cell_size += cell_size % 2 + 1
 
     cell_top = '-' * cell_size + '+'
-    row_top = '+' + cell_top * 12
+    row_top  = '+' + cell_top * num_cols
 
     log_path = os.path.join(run_dir, "log.txt")
     output_lines = []
-    if epoch == 0:
+
+    if print_header:
         header = row_top + "\n|"
-        for m in metrics:
-            header += m.center(cell_size)
-            header += '|' 
+        for m in cols:
+            header += m.center(cell_size) + '|'
         header += f'\n{row_top}'
         output_lines.append(header)
-
         print(header)
 
     built = "|"
-    metrics_vals = [epoch] + metrics_vals
-    for m in metrics_vals:
-        if isinstance(m, float):
-            text = f"{m:.6g}" 
-        else:
-            text = str(m)
-
+    for m in [epoch] + list(metrics_vals):
+        text = f"{m:.6g}" if isinstance(m, float) else str(m)
         if len(text) > cell_size:
             text = text[:cell_size]
-
         built += text.center(cell_size) + '|'
     built += f'\n{row_top}'
     output_lines.append(built)
-    
     print(built)
 
     with open(log_path, "a") as f:

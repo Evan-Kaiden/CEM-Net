@@ -24,9 +24,10 @@ parser.add_argument('--backbone', type=str, default='resnet18', choices=['resnet
 
 parser.add_argument('--lamb_ce', type=float, default=1.)
 parser.add_argument('--lamb_tv', type=float, default=0.02)
-parser.add_argument('--lamb_entropy', type=float, default=0.02)
 parser.add_argument('--lamb_contrast', type=float, default=0.3)
-parser.add_argument('--lamb_sparsity', type=float, default=0.05)
+
+parser.add_argument('--lamb_entropy', type=float, default=0.05)
+parser.add_argument('--lamb_sparsity', type=float, default=0.15)
 parser.add_argument('--lamb_masking', type=float, default=1.)
 
 
@@ -34,6 +35,7 @@ parser.add_argument('--lamb_masking', type=float, default=1.)
 parser.add_argument('--optimizer', type=str, default='adam', choices=['adam', 'adamw', 'rmsprop', 'sgd'])
 parser.add_argument('--lr', type=float, default=1e-3)
 parser.add_argument('--lr_scheduler', type=str, default='none', choices=['cosine', 'linear', 'step', 'none'])
+parser.add_argument('--pretrain_epochs', type=int, default=10)
 parser.add_argument('--epochs', type=int, default=50)
 parser.add_argument('--image_size', type=int, default=32)
 parser.add_argument('--batch_size', type=int, default=32)
@@ -108,9 +110,10 @@ print(f"Training\n  Model {args.backbone}\n  Epochs {args.epochs}\n  Device {dev
 # 2. confirm feature map size coming out of backbone
 with torch.no_grad():
     dummy = torch.zeros(1, 3, img_size, img_size).to(device)
-    features = m.backbone(dummy)
-    print(features.shape)  # should be (1, 256, 12, 12) for layer3 exit
+    features = m.backbone(dummy).squeeze(0).shape
+    print(f"  Input Shape to CEM {[f for f in features]}")
 train(
+    pretrain_epochs=args.pretrain_epochs,
     epochs=args.epochs,
     model=m,
     dset=dset,
@@ -120,4 +123,5 @@ train(
     start_epoch=start_epoch,
     device=device
 )
+
 

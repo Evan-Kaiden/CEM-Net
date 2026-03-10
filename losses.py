@@ -29,7 +29,7 @@ def fg_bg_contrast_loss_func(maps, attn, margin=0.3):
     return F.relu(similarity - margin).mean()
 
 
-def attn_sparsity_loss_func(attn, target_coverage=0.25):
+def attn_sparsity_loss_func(attn, target_coverage=0.1):
     """
     Forces attention to cover at most target_coverage of the image.
     Without this the attention collapses to covering everything,
@@ -68,10 +68,40 @@ def masking_consistency_loss(model, images, logits, attn, targets):
 
     with torch.no_grad():
         masked_features = model.backbone(masked_images)
-    masked_logits = model.evidence_mapper(masked_features)
+    
+    # use attn_classifier during pretrain, not evidence_mapper
+    masked_attn   = model.attn_head(masked_features)
+    masked_attn   = torch.sigmoid(masked_attn)
+    gated         = masked_features * masked_attn
+    pooled        = gated.mean(dim=(-2, -1))
+    masked_logits = model.attn_classifier(pooled)
 
     original_score = torch.sigmoid(logits)[torch.arange(B), targets]
     masked_score   = torch.sigmoid(masked_logits)[torch.arange(B), targets]
 
     drop = original_score - masked_score
-    return -drop.mean() 
+    return -drop.mean()
+
+
+def deletion_loss(logits, maps, images, model):
+    # predicted class for each image
+    pred_classes = logits.argmax(dim=1)
+
+    # get corresponding class map
+    B, C, H, W = maps.shape
+    mask = maps[torch.arange(B), pred_classes].unsqueeze(1)  # (B,1,H,W)
+
+    # normalize mask to [0,1]
+    mask = mask.sigmoid()
+
+    # remove important region
+    removed_images = images * (1 - mask)
+
+    # forward pass
+    removed_logits = model(removed_images)
+    removed_scores = removed_logits.gather(1, pred_classes.unsqueeze(1)).squeeze(1)
+    orig_scores = logits.gather(1, pred_classes.unsqueeze(1)).squeeze(1)
+
+    # deletion loss
+    delete_loss = torch.relu(removed_scores - orig_scores + 0.2).mean()
+    return delete_loss
