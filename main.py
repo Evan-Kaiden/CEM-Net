@@ -60,7 +60,7 @@ if args.run_dir is None:
 
 dset = get_dataloader(args.dataset, args.batch_size)
 
-img_size = next(iter(dset.train_loader))[0].size(-1).item()
+img_size = next(iter(dset.train_loader))[0].size(-1)
 num_class = len(dset.classes)
 backbone = map_arg[args.backbone](pretrained=args.pretrained).to(device)
 m = CEMModelWrapper(backbone, num_class, img_size, device=device).to(device)
