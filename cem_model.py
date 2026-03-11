@@ -43,7 +43,7 @@ class AttentionHead(nn.Module):
         final_ch = max(current_ch // 4, 16)
 
         self.final_conv = nn.Conv2d(final_ch, 1, kernel_size=1)
-        nn.init.normal_(self.final_conv.weight, mean=0.0, std=0.5)
+        nn.init.normal_(self.final_conv.weight, mean=0.0, std=1)
         nn.init.constant_(self.final_conv.bias, 0.0)
 
     def forward(self, x: torch.Tensor, skips: list[torch.Tensor]) -> torch.Tensor:
