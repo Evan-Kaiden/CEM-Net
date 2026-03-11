@@ -34,8 +34,8 @@ def train_one_epoch(args, epoch, model, trainloader, optimizer, scheduler, devic
             
             loss = (args["lamb_ce"] * ce
                     # + args["lamb_masking"]  * masking
-                    + args["lamb_entropy"]  * entropy)
-                    # + args["lamb_sparsity"] * sparsity)
+                    + args["lamb_entropy"]  * entropy
+                    + args["lamb_sparsity"] * sparsity)
 
             metrics["ce"] += args["lamb_ce"] * ce.item()
             metrics["masking"] += 0 #args["lamb_masking"]  * masking.item()

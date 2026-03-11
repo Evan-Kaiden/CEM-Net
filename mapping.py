@@ -19,7 +19,7 @@ map_arg = {
     "mobilenetv2" : lambda pretrained=False: _load_backbone(tvm.mobilenet_v2, tvm.MobileNet_V2_Weights.IMAGENET1K_V1, pretrained),
     'mobilenetv2' : MobileNetV2(),
     'adam' : optim.Adam,
-    'adamw' : optim.AdamW,
+    'adamw' : optim.AdamW, 
     'rmsprop' : optim.RMSprop,
     'sgd' : optim.SGD,
     'cosine' : lr_scheduler.CosineAnnealingLR, 
@@ -31,4 +31,4 @@ map_arg = {
 
 def _load_backbone(model_fn, weights, pretrained):
     model = model_fn(weights=weights if pretrained else None)
-    return nn.Sequential(*list(model.children())[:-3])
+    return nn.Sequential(*list(model.children())[:-4])

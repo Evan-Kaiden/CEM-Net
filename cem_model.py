@@ -3,7 +3,6 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from cem_layer import EvidenceMapModule
-from archetectures import resnet
 
 class AttentionHead(nn.Module):
     """
@@ -44,14 +43,8 @@ class AttentionHead(nn.Module):
         final_ch = max(current_ch // 4, 16)
 
         self.final_conv = nn.Conv2d(final_ch, 1, kernel_size=1)
-        nn.init.normal_(self.final_conv.weight, mean=0.0, std=0.01)
-        nn.init.constant_(self.final_conv.bias, -2.0)
-
-        for block in self.fusion_blocks:
-            for layer in block:
-                if isinstance(layer, nn.Conv2d):
-                    nn.init.kaiming_normal_(layer.weight, mode='fan_out', nonlinearity='relu')
-                    nn.init.constant_(layer.bias, 0.0)
+        nn.init.normal_(self.final_conv.weight, mean=0.0, std=0.5)
+        nn.init.constant_(self.final_conv.bias, 0.0)
 
     def forward(self, x: torch.Tensor, skips: list[torch.Tensor]) -> torch.Tensor:
         x = self.stem(x)
@@ -111,15 +104,9 @@ class CEMModelWrapper(nn.Module):
         self.attn_head = AttentionHead(in_channels, skip_channels, input_size)
 
         self.attn_classifier = nn.Sequential(
-            nn.Conv2d(3, 32, kernel_size=3, stride=2, padding=1),
+            nn.Linear(in_channels, in_channels // 2),
             nn.ReLU(inplace=True),
-            nn.Conv2d(32, 64, kernel_size=3, stride=2, padding=1),
-            nn.ReLU(inplace=True),
-            nn.Conv2d(64, 128, kernel_size=3, stride=2, padding=1),
-            nn.ReLU(inplace=True),
-            nn.AdaptiveAvgPool2d(1),
-            nn.Flatten(),
-            nn.Linear(128, num_classes),
+            nn.Linear(in_channels // 2, num_classes),
         )
 
     def _backbone_forward(self, x):
@@ -149,8 +136,11 @@ class CEMModelWrapper(nn.Module):
         attn = torch.sigmoid(attn_logits)
 
         if train_attention:
-            gated = x * attn
-            logits = self.attn_classifier(gated)
+            features_up = F.interpolate(features, size=attn_logits.shape[-2:],
+                                mode="bilinear", align_corners=False)
+            gated  = features_up * attn
+            pooled = gated.mean(dim=(-2, -1))
+            logits = self.attn_classifier(pooled)
             return logits, attn
         else:
             return self.evidence_mapper(
