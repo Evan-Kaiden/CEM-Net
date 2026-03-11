@@ -4,65 +4,27 @@ import torch.nn.functional as F
 
 from cem_layer import EvidenceMapModule
 
-class AttentionHead(nn.Module):
-    """
-    Upsamples from backbone resolution all the way to target_size,
-    fusing skip connections at matching resolutions along the way.
-    """
-    def __init__(self, in_channels: int, skip_channels_per_stage: list[int],
-                 target_size: int):
+class SpatialSoftmaxAttention(nn.Module):
+    def __init__(self, in_channels, temperature=2.0):
         super().__init__()
-        self.target_size = target_size
+        self.conv = nn.Conv2d(in_channels, 1, kernel_size=1)
+        self.temperature = temperature
 
-        self.stem = nn.Sequential(
-            nn.Conv2d(in_channels, in_channels // 2, kernel_size=3, padding=1),
-            nn.ReLU(inplace=True),
-        )
-        current_ch = in_channels // 2
+        nn.init.zeros_(self.conv.weight)
+        nn.init.zeros_(self.conv.bias)
 
-        # Fusion blocks — one per skip (deep → shallow)
-        self.fusion_blocks = nn.ModuleList()
-        for skip_ch in skip_channels_per_stage:
-            fused_ch = current_ch + skip_ch
-            out_ch   = max(fused_ch // 2, 16)
-            self.fusion_blocks.append(nn.Sequential(
-                nn.Conv2d(fused_ch, out_ch, kernel_size=3, padding=1),
-                nn.ReLU(inplace=True),
-            ))
-            current_ch = out_ch
+    def forward(self, x):
+        B, C, H, W = x.shape
 
-        # Extra upsampling blocks to reach target_size after skips are exhausted
-        # We don't know exact resolution at init, so we use a few more refinement convs
-        # and let forward() handle the remaining resize via interpolate
-        self.refine = nn.Sequential(
-            nn.Conv2d(current_ch, max(current_ch // 2, 16), kernel_size=3, padding=1),
-            nn.ReLU(inplace=True),
-            nn.Conv2d(max(current_ch // 2, 16), max(current_ch // 4, 16), kernel_size=3, padding=1),
-            nn.ReLU(inplace=True),
-        )
-        final_ch = max(current_ch // 4, 16)
+        logits = self.conv(x)
 
-        self.final_conv = nn.Conv2d(final_ch, 1, kernel_size=1)
-        nn.init.normal_(self.final_conv.weight, mean=0.0, std=1)
-        nn.init.constant_(self.final_conv.bias, 0.0)
+        attn = logits.view(B, -1)
+        attn = torch.softmax(attn / self.temperature, dim=-1)
+        attn = attn.view(B, 1, H, W)
 
-    def forward(self, x: torch.Tensor, skips: list[torch.Tensor]) -> torch.Tensor:
-        x = self.stem(x)
+        attended = x * attn
 
-        # Upsample + fuse each skip
-        for block, skip in zip(self.fusion_blocks, skips):
-            x = F.interpolate(x, size=skip.shape[-2:], mode="bilinear", align_corners=False)
-            x = torch.cat([x, skip], dim=1)
-            x = block(x)
-
-        # Continue upsampling to target_size after skips are exhausted
-        x = F.interpolate(x, size=(self.target_size, self.target_size),
-                          mode="bilinear", align_corners=False)
-        x = self.refine(x)
-
-        return self.final_conv(x) 
-
-
+        return attended, attn
 class CEMModelWrapper(nn.Module):
     def __init__(self, backbone, num_classes, input_size: int,
                  skip_layer_names: list[str] | None = None, device=None):
@@ -101,7 +63,7 @@ class CEMModelWrapper(nn.Module):
             num_classes, size_after_backbone, input_size,
             skip_channels_per_stage=skip_channels,
         )
-        self.attn_head = AttentionHead(in_channels, skip_channels, input_size)
+        self.attn_head = SpatialSoftmaxAttention(in_channels)
 
         self.attn_classifier = nn.Sequential(
             nn.Linear(in_channels, in_channels // 2),
@@ -132,14 +94,10 @@ class CEMModelWrapper(nn.Module):
     def forward(self, x, train_attention=False, return_maps=False):
         features, skips = self._backbone_forward(x)
         skips = skips[::-1]
-        attn_logits = self.attn_head(features, skips)
-        attn = F.softmax(attn_logits, dim=-1)
+        attended, attn = self.attn_head(features)
 
         if train_attention:
-            features_up = F.interpolate(features, size=attn_logits.shape[-2:],
-                                mode="bilinear", align_corners=False)
-            gated  = features_up * attn
-            pooled = gated.mean(dim=(-2, -1))
+            pooled = attended.mean(dim=(-2, -1))
             logits = self.attn_classifier(pooled)
             return logits, attn
         else:

@@ -9,7 +9,7 @@ from tqdm import tqdm
 
 from utils import print_row
 from viz import plot_masks_together, plot_attention_only
-from losses import ce_loss_func, tv_loss_func, masking_consistency_loss, attn_entropy_loss_func, attn_sparsity_loss_func, deletion_loss
+from losses import ce_loss_func, tv_loss_func, masking_consistency_loss, attn_entropy_loss_func, attn_sparsity_loss_func, deletion_loss, spatial_entropy_loss
 
 
 def train_one_epoch(args, epoch, model, trainloader, optimizer, scheduler, device, pretrain):
@@ -32,13 +32,13 @@ def train_one_epoch(args, epoch, model, trainloader, optimizer, scheduler, devic
             
             loss = args["lamb_ce"] * ce
             
-            entropy = attn_entropy_loss_func(attn)
+            entropy = spatial_entropy_loss(attn)
             sparsity = attn_sparsity_loss_func(attn)
             
             loss = (args["lamb_ce"] * ce
                     # + args["lamb_masking"]  * masking
-                    + args["lamb_entropy"]  * entropy
-                    + args["lamb_sparsity"] * sparsity)
+                    + args["lamb_entropy"]  * entropy)
+                    # + args["lamb_sparsity"] * sparsity)
 
             metrics["ce"] += args["lamb_ce"] * ce.item()
             metrics["masking"] += 0 #args["lamb_masking"]  * masking.item()

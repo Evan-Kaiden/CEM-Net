@@ -105,3 +105,9 @@ def deletion_loss(logits, maps, images, model):
     # deletion loss
     delete_loss = torch.relu(removed_scores - orig_scores + 0.2).mean()
     return delete_loss
+
+
+def spatial_entropy_loss(attn):
+    p = attn.clamp(min=1e-8)
+    entropy = -(p * p.log())
+    return entropy.sum(dim=(2,3)).mean()
