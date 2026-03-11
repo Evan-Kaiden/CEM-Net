@@ -45,7 +45,13 @@ class AttentionHead(nn.Module):
 
         self.final_conv = nn.Conv2d(final_ch, 1, kernel_size=1)
         nn.init.normal_(self.final_conv.weight, mean=0.0, std=0.01)
-        nn.init.constant_(self.final_conv.bias, 0.0)
+        nn.init.constant_(self.final_conv.bias, -2.0)
+
+        for block in self.fusion_blocks:
+            for layer in block:
+                if isinstance(layer, nn.Conv2d):
+                    nn.init.kaiming_normal_(layer.weight, mode='fan_out', nonlinearity='relu')
+                    nn.init.constant_(layer.bias, 0.0)
 
     def forward(self, x: torch.Tensor, skips: list[torch.Tensor]) -> torch.Tensor:
         x = self.stem(x)
@@ -70,7 +76,6 @@ class CEMModelWrapper(nn.Module):
         super().__init__()
         self.backbone = backbone
         self.input_size = input_size
-        self.temperature = 50.0
         self.skip_layer_names = skip_layer_names or []
         _device = device or next(backbone.parameters()).device
 
