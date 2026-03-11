@@ -97,18 +97,24 @@ class CEMModelWrapper(nn.Module):
         size_after_backbone = out.shape
         in_channels = out.shape[0]
 
+        skip_channels = skip_channels[::-1]  # deep → shallow
+
         self.evidence_mapper = EvidenceMapModule(
             num_classes, size_after_backbone, input_size,
             skip_channels_per_stage=skip_channels,
         )
-
-        # Both the attention head and evidence mapper share the same skips
         self.attn_head = AttentionHead(in_channels, skip_channels, input_size)
 
         self.attn_classifier = nn.Sequential(
-            nn.Linear(in_channels, in_channels // 2),
+            nn.Conv2d(3, 32, kernel_size=3, stride=2, padding=1),
             nn.ReLU(inplace=True),
-            nn.Linear(in_channels // 2, num_classes),
+            nn.Conv2d(32, 64, kernel_size=3, stride=2, padding=1),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(64, 128, kernel_size=3, stride=2, padding=1),
+            nn.ReLU(inplace=True),
+            nn.AdaptiveAvgPool2d(1),
+            nn.Flatten(),
+            nn.Linear(128, num_classes),
         )
 
     def _backbone_forward(self, x):
@@ -133,17 +139,13 @@ class CEMModelWrapper(nn.Module):
 
     def forward(self, x, train_attention=False, return_maps=False):
         features, skips = self._backbone_forward(x)
-
+        skips = skips[::-1]
         attn_logits = self.attn_head(features, skips)
         attn = torch.sigmoid(attn_logits)
 
         if train_attention:
-            features_up = F.interpolate(features, size=attn_logits.shape[-2:],
-                                mode="bilinear", align_corners=False)
-            attn_small = torch.sigmoid(attn_logits)
-            gated  = features_up * attn_small
-            pooled = gated.mean(dim=(-2, -1))
-            logits = self.attn_classifier(pooled)
+            gated = x * attn
+            logits = self.attn_classifier(gated)
             return logits, attn
         else:
             return self.evidence_mapper(
