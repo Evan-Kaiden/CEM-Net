@@ -28,7 +28,7 @@ def train_one_epoch(args, epoch, model, trainloader, optimizer, scheduler, devic
         if pretrain:
             logits, attn = model(images, train_attention=True)
             ce = ce_loss_func(logits, targets)
-            masking = masking_consistency_loss(model, images, logits, attn, targets)
+            # masking = masking_consistency_loss(model, images, logits, attn, targets)
             # entropy = attn_entropy_loss_func(attn)
             sparsity = attn_sparsity_loss_func(attn)
             
@@ -54,7 +54,7 @@ def train_one_epoch(args, epoch, model, trainloader, optimizer, scheduler, devic
             loss = (args["lamb_ce"] * ce
                   + args["lamb_tv"] * tv
                 #   + args["lamb_masking"] * masking
-                  + 0.1 * deletion_loss(logits, maps, images, model)
+                #   + 0.1 * deletion_loss(logits, maps, images, model)
                   - 0.1 * bg_percent)
 
             metrics["tv"] += args["lamb_tv"] * tv.item()

@@ -5,52 +5,85 @@ import torch.nn.functional as F
 
 from entmax import sparsemax, entmax15
 
+class UpsampleBlock(nn.Module):
+    """Single upsampling stage with optional skip connection fusion."""
+    def __init__(self, in_channels, skip_channels, out_channels):
+        super().__init__()
+        fused_channels = in_channels + skip_channels  # concat skip before conv
+        self.upsample = nn.Upsample(scale_factor=2, mode="bilinear", align_corners=False)
+        self.conv = nn.Conv2d(fused_channels, out_channels, kernel_size=3, padding=1)
+        self.relu = nn.ReLU(inplace=True)
+
+    def forward(self, x, skip=None):
+        x = self.upsample(x)
+        if skip is not None:
+            # Align spatial dims in case of off-by-one from strided ops
+            if x.shape[-2:] != skip.shape[-2:]:
+                x = F.interpolate(x, size=skip.shape[-2:], mode="bilinear", align_corners=False)
+            x = torch.cat([x, skip], dim=1)
+        x = self.relu(self.conv(x))
+        return x
+
+
+
+
 class EvidenceMapModule(nn.Module):
-    def __init__(self, num_classes:int, size_after_backbone: tuple[int, int, int], original_image_dimension:int):
+    def __init__(
+        self,
+        num_classes: int,
+        size_after_backbone: tuple[int, int, int],
+        original_image_dimension: int,
+        skip_channels_per_stage: list[int] | None = None,
+    ):
         super().__init__()
         in_channels, in_h, in_w = size_after_backbone
 
-        # add a NONE class with +1
-        self.num_classes = num_classes + 1
-        self.original_image_dimension = original_image_dimension
-        self.upscale = self._build_upsampler(in_channels, in_h, in_w, original_image_dimension, num_classes + 1)
-        
+        self.num_classes = num_classes + 1  # +1 for NONE
+        self.target_size = original_image_dimension
         self.entmax15 = entmax15
 
-    def _build_upsampler(self, in_channels, in_h, in_w, target_size, num_classes):
-        layers = []
+        self.skip_channels_per_stage: list[int] = skip_channels_per_stage or []
 
-        current_h = in_h
-        current_w = in_w
+        self.stages = nn.ModuleList()
         channels = in_channels
+        current_h, current_w = in_h, in_w
+        stage_idx = 0
 
-        while current_h * 2 <= target_size and current_w * 2 <= target_size:
-
-            layers.append(nn.Upsample(scale_factor=2, mode="bilinear", align_corners=False))
-            
-            next_channels = max(channels // 2, num_classes * 2)
-            
-            layers.append(nn.Conv2d(channels, next_channels, kernel_size=3, padding=1))
-            layers.append(nn.ReLU(inplace=True))
-
-            channels = next_channels
+        while current_h * 2 <= self.target_size and current_w * 2 <= self.target_size:
+            skip_ch = (
+                self.skip_channels_per_stage[stage_idx]
+                if stage_idx < len(self.skip_channels_per_stage)
+                else 0
+            )
+            out_ch = max(channels // 2, self.num_classes * 2)
+            self.stages.append(UpsampleBlock(channels, skip_ch, out_ch))
+            channels = out_ch
             current_h *= 2
             current_w *= 2
+            stage_idx += 1
 
-        if current_h != target_size or current_w != target_size:
-            layers.append(nn.Upsample(size=(target_size, target_size), mode="bilinear",align_corners=False))
+        self.num_upsample_stages = stage_idx
+        self.need_final_resize = (current_h != self.target_size or current_w != self.target_size)
+        
+        self.final_conv = nn.Conv2d(channels, self.num_classes, kernel_size=1)
 
-        layers.append(nn.Conv2d(channels, num_classes, kernel_size=1))
+    def forward(self, x, attn, skips: list[torch.Tensor] | None = None, return_maps=False):
+        skips = skips or []
 
-        return nn.Sequential(*layers)
-    
-    def forward(self, x, attn, return_maps=False):
-        upscaled = self.upscale(x)
+        for i, stage in enumerate(self.stages):
+            skip = skips[i] if i < len(skips) else None
+            x = stage(x, skip)
+
+        if self.need_final_resize:
+            x = F.interpolate(x, size=(self.target_size, self.target_size),
+                              mode="bilinear", align_corners=False)
+
+        upscaled = self.final_conv(x)
         maps = self.entmax15(upscaled, dim=1)
 
         attended = maps * attn
-        attn_mass = attn.sum(dim=(-2,-1), keepdim=True) + 1e-6
-        logits_full = attended.sum(dim=(-2,-1)) / attn_mass.squeeze(-1).squeeze(-1)
+        attn_mass = attn.sum(dim=(-2, -1), keepdim=True) + 1e-6
+        logits_full = attended.sum(dim=(-2, -1)) / attn_mass.squeeze(-1).squeeze(-1)
         logits = logits_full[:, :-1]
 
         if return_maps:
