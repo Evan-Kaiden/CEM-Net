@@ -30,18 +30,15 @@ def train_one_epoch(args, epoch, model, trainloader, optimizer, scheduler, devic
             ce = ce_loss_func(logits, targets)
             # masking = masking_consistency_loss(model, images, logits, attn, targets)
             
-            if epoch < 3:
-                loss = args["lamb_ce"] * ce
-                entropy = torch.tensor([0])
-                sparsity = torch.tensor([0])
-            else:
-                entropy = attn_entropy_loss_func(attn)
-                sparsity = attn_sparsity_loss_func(attn)
-                
-                loss = (args["lamb_ce"] * ce
-                        # + args["lamb_masking"]  * masking
-                        + args["lamb_entropy"]  * entropy
-                        + args["lamb_sparsity"] * sparsity)
+            loss = args["lamb_ce"] * ce
+            
+            entropy = attn_entropy_loss_func(attn)
+            sparsity = attn_sparsity_loss_func(attn)
+            
+            loss = (args["lamb_ce"] * ce
+                    # + args["lamb_masking"]  * masking
+                    + args["lamb_entropy"]  * entropy
+                    + args["lamb_sparsity"] * sparsity)
 
             metrics["ce"] += args["lamb_ce"] * ce.item()
             metrics["masking"] += 0 #args["lamb_masking"]  * masking.item()
