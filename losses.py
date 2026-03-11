@@ -29,7 +29,7 @@ def fg_bg_contrast_loss_func(maps, attn, margin=0.3):
     return F.relu(similarity - margin).mean()
 
 
-def attn_sparsity_loss_func(attn, target_coverage=0.1):
+def attn_sparsity_loss_func(attn, target_coverage=0.25):
     """
     Forces attention to cover at most target_coverage of the image.
     Without this the attention collapses to covering everything,

@@ -39,7 +39,7 @@ def train_one_epoch(args, epoch, model, trainloader, optimizer, scheduler, devic
 
             metrics["ce"] += args["lamb_ce"] * ce.item()
             metrics["masking"] += 0 #args["lamb_masking"]  * masking.item()
-            metrics["entropy"] += 0 #args["lamb_entropy"]  * entropy.item()
+            metrics["entropy"] += args["lamb_entropy"]  * entropy.item()
             metrics["sparsity"] +=  args["lamb_sparsity"]  * sparsity.item()
             bg_percent = 0.0
 
