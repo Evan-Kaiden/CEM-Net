@@ -32,6 +32,8 @@ def train_one_epoch(args, epoch, model, trainloader, optimizer, scheduler, devic
             
             if epoch < 3:
                 loss = args["lamb_ce"] * ce
+                entropy = 0
+                sparsity = 0 
             else:
                 entropy = attn_entropy_loss_func(attn)
                 sparsity = attn_sparsity_loss_func(attn)
