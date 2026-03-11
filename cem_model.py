@@ -133,7 +133,7 @@ class CEMModelWrapper(nn.Module):
         features, skips = self._backbone_forward(x)
         skips = skips[::-1]
         attn_logits = self.attn_head(features, skips)
-        attn = torch.softmax(attn_logits)
+        attn = F.softmax(attn_logits, dim=-1)
 
         if train_attention:
             features_up = F.interpolate(features, size=attn_logits.shape[-2:],
