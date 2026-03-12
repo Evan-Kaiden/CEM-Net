@@ -5,26 +5,29 @@ import torch.nn.functional as F
 from cem_layer import EvidenceMapModule
 
 class SpatialSoftmaxAttention(nn.Module):
-    def __init__(self, in_channels, temperature=2.0):
+    def __init__(self, in_channels, temperature=5.0):
         super().__init__()
-        self.conv = nn.Conv2d(in_channels, 1, kernel_size=1)
+        
+        self.init_conv = nn.Conv2d(in_channels, in_channels, kernel_size=3, padding=1)
+        self.final_conv = nn.Conv2d(in_channels, 1, kernel_size=1)
         self.temperature = temperature
 
-        nn.init.zeros_(self.conv.weight)
-        nn.init.zeros_(self.conv.bias)
+        nn.init.normal_(self.final_conv.weight, mean=0, std=0.01)
+        nn.init.constant_(self.final_conv.bias, val=0)
 
     def forward(self, x):
         B, C, H, W = x.shape
 
-        logits = self.conv(x)
+        x = self.init_conv(x)
+        x = F.relu(x)
+        logits = self.final_conv(x)
 
-        attn = logits.view(B, -1)
-        attn = torch.softmax(attn / self.temperature, dim=-1)
-        attn = attn.view(B, 1, H, W)
+        attn = torch.sigmoid(logits / 0.3)
 
         attended = x * attn
 
         return attended, attn
+
 class CEMModelWrapper(nn.Module):
     def __init__(self, backbone, num_classes, input_size: int,
                  skip_layer_names: list[str] | None = None, device=None):
@@ -66,9 +69,15 @@ class CEMModelWrapper(nn.Module):
         self.attn_head = SpatialSoftmaxAttention(in_channels)
 
         self.attn_classifier = nn.Sequential(
-            nn.Linear(in_channels, in_channels // 2),
+            nn.Conv2d(in_channels, in_channels // 2, 3, padding=1),
+            nn.BatchNorm2d(in_channels // 2),
             nn.ReLU(inplace=True),
-            nn.Linear(in_channels // 2, num_classes),
+
+            nn.Conv2d(in_channels // 2, in_channels // 4, 3, padding=1),
+            nn.BatchNorm2d(in_channels // 4),
+            nn.ReLU(inplace=True),
+
+            nn.Conv2d(in_channels // 4, num_classes, 1)
         )
 
     def _backbone_forward(self, x):
@@ -97,8 +106,8 @@ class CEMModelWrapper(nn.Module):
         attended, attn = self.attn_head(features)
 
         if train_attention:
-            pooled = attended.mean(dim=(-2, -1))
-            logits = self.attn_classifier(pooled)
+            x = self.attn_classifier(attended)
+            logits = x.mean(dim=(-2,-1))
             return logits, attn
         else:
             return self.evidence_mapper(

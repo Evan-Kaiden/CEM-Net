@@ -94,11 +94,6 @@ def plot_masks_together(mask, attn, image, dset, runs_dir, epoch, save_name):
 
 
 def plot_attention_only(attn, image, dset, runs_dir, epoch, save_name):
-    """
-    Lightweight attention-only viz for logging during pretraining.
-    attn:  (1, H, W) - spatial attention in (0,1)
-    image: (3, H, W) - normalized input image
-    """
     SIZE = 224
     attn  = F.interpolate(attn.detach().unsqueeze(0),  size=SIZE, mode='bilinear', align_corners=False).squeeze(0)
     image = F.interpolate(image.detach().unsqueeze(0), size=SIZE, mode='bilinear', align_corners=False).squeeze(0)
@@ -109,16 +104,25 @@ def plot_attention_only(attn, image, dset, runs_dir, epoch, save_name):
     image_np = image_np * np.array(dset.std) + np.array(dset.mean)
     image_np = np.clip(image_np, 0, 1)
 
-    fg_mask = attn_map > np.median(attn_map)
+    # Stats for title — quick health check without opening every image
+    attn_std  = attn_map.std()
+    attn_mean = attn_map.mean()
+    attn_max  = attn_map.max()
+    is_collapsed = attn_std < 0.05  # flag uniform maps
 
-    fig, axes = plt.subplots(1, 2, figsize=(10, 5))
+    fg_mask   = attn_map > np.median(attn_map)
+    fg_pixels = image_np * attn_map[..., None]          # pixel values weighted by attention
+    fg_pixels = np.clip(fg_pixels / (attn_map[..., None].max() + 1e-6), 0, 1)
 
-    # ── Panel 1: raw heatmap ─────────────────────────────────────────────
+    fig, axes = plt.subplots(1, 4, figsize=(20, 5))
+
+    # ── Panel 1: raw heatmap overlay ─────────────────────────────────────
     ax = axes[0]
     ax.imshow(image_np)
     overlay = ax.imshow(attn_map, cmap='hot', alpha=0.6, vmin=0, vmax=1)
     plt.colorbar(overlay, ax=ax, fraction=0.046, pad=0.04)
-    ax.set_title("Attention Heatmap")
+    ax.set_title(f"Heatmap  (std={attn_std:.3f}{'  ⚠ COLLAPSED' if is_collapsed else ''})",
+                 color='red' if is_collapsed else 'black')
     ax.axis("off")
 
     # ── Panel 2: binary fg/bg split ──────────────────────────────────────
@@ -126,8 +130,25 @@ def plot_attention_only(attn, image, dset, runs_dir, epoch, save_name):
     ax.imshow(image_np)
     ax.imshow(fg_mask, cmap='cool', alpha=0.4, vmin=0, vmax=1)
     ax.contour(fg_mask.astype(float), levels=[0.5], colors=['cyan'], linewidths=1.5)
-    ax.set_title("Foreground Region (above median)")
+    ax.set_title("Foreground (above median)")
     ax.axis("off")
+
+    # ── Panel 3: attention-weighted image (what the classifier actually sees)
+    ax = axes[2]
+    ax.imshow(fg_pixels)
+    ax.set_title("Attended Pixels")
+    ax.axis("off")
+
+    # ── Panel 4: attention histogram (best single indicator of collapse)
+    ax = axes[3]
+    ax.hist(attn_map.ravel(), bins=50, color='steelblue', edgecolor='none')
+    ax.axvline(attn_mean, color='red',    linestyle='--', linewidth=1.5, label=f'mean={attn_mean:.2f}')
+    ax.axvline(attn_max,  color='orange', linestyle='--', linewidth=1.5, label=f'max={attn_max:.2f}')
+    ax.set_xlim(0, 1)
+    ax.set_title("Attention Distribution")
+    ax.set_xlabel("Attention value")
+    ax.set_ylabel("Count")
+    ax.legend(fontsize=8)
 
     fig.suptitle(f"Attention — Epoch {epoch}", fontsize=11, y=1.01)
     plt.tight_layout()

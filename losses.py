@@ -28,17 +28,6 @@ def fg_bg_contrast_loss_func(maps, attn, margin=0.3):
     similarity = F.cosine_similarity(fg_dist, bg_dist, dim=1)
     return F.relu(similarity - margin).mean()
 
-
-def attn_sparsity_loss_func(attn, target_coverage=0.25):
-    """
-    Forces attention to cover at most target_coverage of the image.
-    Without this the attention collapses to covering everything,
-    which makes fg_bg_contrast degenerate (fg == bg == whole image).
-    """
-    mean_coverage = attn.mean(dim=(-2, -1))  # (B, 1)
-    return F.relu(mean_coverage - target_coverage).mean()
-
-
 def attn_entropy_loss_func(attn):
     """
     Pushes attention values toward 0 or 1 by minimizing entropy.
@@ -111,3 +100,7 @@ def spatial_entropy_loss(attn):
     p = attn.clamp(min=1e-8)
     entropy = -(p * p.log())
     return entropy.sum(dim=(2,3)).mean()
+
+
+def mse_loss(pred, true):
+    return F.mse_loss(pred, true)

@@ -27,7 +27,7 @@ parser.add_argument('--lamb_tv', type=float, default=0.02)
 parser.add_argument('--lamb_contrast', type=float, default=0.3)
 
 parser.add_argument('--lamb_entropy', type=float, default=0.05)
-parser.add_argument('--lamb_sparsity', type=float, default=0.1)
+parser.add_argument('--lamb_sparsity', type=float, default=0.001)
 parser.add_argument('--lamb_masking', type=float, default=1.)
 
 
@@ -35,7 +35,7 @@ parser.add_argument('--lamb_masking', type=float, default=1.)
 parser.add_argument('--optimizer', type=str, default='adam', choices=['adam', 'adamw', 'rmsprop', 'sgd'])
 parser.add_argument('--lr', type=float, default=1e-3)
 parser.add_argument('--lr_scheduler', type=str, default='none', choices=['cosine', 'linear', 'step', 'none'])
-parser.add_argument('--pretrain_epochs', type=int, default=10)
+parser.add_argument('--pretrain_epochs', type=int, default=20)
 parser.add_argument('--epochs', type=int, default=50)
 parser.add_argument('--image_size', type=int, default=32)
 parser.add_argument('--batch_size', type=int, default=32)

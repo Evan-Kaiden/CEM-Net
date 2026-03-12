@@ -9,7 +9,7 @@ from tqdm import tqdm
 
 from utils import print_row
 from viz import plot_masks_together, plot_attention_only
-from losses import ce_loss_func, tv_loss_func, masking_consistency_loss, attn_entropy_loss_func, attn_sparsity_loss_func, deletion_loss, spatial_entropy_loss
+from losses import ce_loss_func, tv_loss_func, mse_loss, spatial_entropy_loss
 
 
 def train_one_epoch(args, epoch, model, trainloader, optimizer, scheduler, device, pretrain):
@@ -33,17 +33,30 @@ def train_one_epoch(args, epoch, model, trainloader, optimizer, scheduler, devic
             loss = args["lamb_ce"] * ce
             
             entropy = spatial_entropy_loss(attn)
-            sparsity = attn_sparsity_loss_func(attn)
-            
-            loss = (args["lamb_ce"] * ce
-                    # + args["lamb_masking"]  * masking
-                    + args["lamb_entropy"]  * entropy)
-                    # + args["lamb_sparsity"] * sparsity)
+            attn_flat = attn.view(attn.shape[0], -1)
+
+            bin_loss = (attn_flat * (1 - attn_flat)).mean()
+            k_percent = 0.05 
+
+            B, C, H, W = attn.shape
+            attn_flat = attn.view(B, C, -1)
+
+            k = max(1, int(k_percent * H * W))
+            topk_vals = attn_flat.topk(k, dim=-1).values
+
+            peak_loss = -topk_vals.mean()
+
+            loss = (
+                args["lamb_ce"] * ce
+                + 0.07 * attn.mean()
+                + 0.05 * peak_loss
+                + 0.07 * tv_loss_func(attn)
+                # + 0.1 * bin_loss
+            )
 
             metrics["ce"] += args["lamb_ce"] * ce.item()
             metrics["masking"] += 0 #args["lamb_masking"]  * masking.item()
             metrics["entropy"] += args["lamb_entropy"]  * entropy.item()
-            metrics["sparsity"] +=  args["lamb_sparsity"]  * sparsity.item()
             bg_percent = 0.0
 
         else:
@@ -51,17 +64,33 @@ def train_one_epoch(args, epoch, model, trainloader, optimizer, scheduler, devic
             logits, maps, attn = model(images, return_maps=True)
             bg_percent = (maps.argmax(dim=1) == maps.shape[1] - 1).float().mean().item()
 
+            # we want true class map to match attention
+            # we want background channel to match 1-attention 
+            # we want all other classes to be all 0's
+
+
+            B, C, H, W = maps.shape
+
+            target_map = maps[torch.arange(B), targets]
+
+            bg_map = maps[:, -1]
+
+            mask = torch.ones(B, C, dtype=torch.bool, device=maps.device)
+            mask[torch.arange(B), targets] = False
+
+            all_other_maps = maps[mask].view(B, C-1, H, W) 
+
             ce = ce_loss_func(logits, targets)
-            tv = tv_loss_func(maps)
+            # tv = tv_loss_func(maps)
+
             # masking = masking_consistency_loss(model, images, logits, attn, targets)
             loss = (args["lamb_ce"] * ce
-                  + args["lamb_tv"] * tv
+                #   + args["lamb_tv"] * tv
                 #   + args["lamb_masking"] * masking
                 #   + 0.1 * deletion_loss(logits, maps, images, model)
                   - 0.1 * bg_percent)
 
-            metrics["tv"] += args["lamb_tv"] * tv.item()
-            metrics["masking"] += 0 # args["lamb_masking"] * masking.item()
+            metrics["tv"] += 0
 
         total_loss += loss.item()
         loss.backward()
@@ -83,9 +112,7 @@ def train_one_epoch(args, epoch, model, trainloader, optimizer, scheduler, devic
     return (acc,
             metrics["ce"] / n,
             metrics["tv"] / n,
-            metrics["masking"] / n,
             metrics["entropy"] / n,
-            metrics["sparsity"] / n,
             metrics["bg_percent"] / n,
             lr)
 
@@ -131,15 +158,15 @@ def _save(model, scheduler, config, epoch, test_loss, test_acc):
 def _run_epoch(tag, pretrain, epoch, model, trainloader, testloader,
                optimizer, scheduler, dset, config, device):
     start = time.time()
-    acc, avg_ce, avg_tv, avg_masking, avg_entropy, avg_sparsity, avg_bg, lr = train_one_epoch(
+    acc, avg_ce, avg_tv, avg_entropy, avg_bg, lr = train_one_epoch(
         config, epoch, model, trainloader, optimizer, scheduler, device, pretrain
     )
     test_loss, test_acc = test(config, epoch, model, testloader, dset, device, pretrain)
     epoch_time = int(time.time() - start)
 
     if pretrain:
-        names = ('train acc %', 'test acc %', 'ce',  'masking', 'entropy', 'sparsity', 'lr', 'epoch time')
-        vals  = [acc, test_acc, avg_ce, avg_masking, avg_entropy, avg_sparsity, lr, epoch_time]
+        names = ('train acc %', 'test acc %', 'ce', 'entropy', 'lr', 'epoch time')
+        vals  = [acc, test_acc, avg_ce, avg_entropy, lr, epoch_time]
     else:
         names = ('train acc %', 'test acc %', 'ce', 'tv', 'background', 'lr', 'epoch time')
         vals  = [acc, test_acc, avg_ce, avg_tv,  avg_bg, lr, epoch_time]
