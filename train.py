@@ -9,7 +9,7 @@ from tqdm import tqdm
 
 from utils import print_row
 from viz import plot_masks_together, plot_attention_only
-from losses import ce_loss_func, tv_loss_func, attention_alignment_loss, spatial_entropy_loss, topk_peak_loss
+from losses import ce_loss_func, tv_loss_func, attention_alignment_loss, spatial_entropy_loss, topk_peak_loss, attn_distribution_loss
 
 
 
@@ -38,8 +38,9 @@ def train_one_epoch(args, epoch, model, trainloader, optimizer, scheduler, devic
             tv_loss = tv_loss_func(attn)
 
             loss = (args["lamb_ce"] * ce
-                  + args["lamb_active"] * attn.mean()
-                  + args["lamb_peak"] * peak_loss
+                    + attn_distribution_loss(attn, attn.device)
+                #   + args["lamb_active"] * attn.mean()
+                #   + args["lamb_peak"] * peak_loss
                   + args["lamb_tv"] * tv_loss)
 
             metrics["ce"] += args["lamb_ce"] * ce.item()
