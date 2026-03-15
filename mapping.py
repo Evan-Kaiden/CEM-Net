@@ -31,4 +31,4 @@ map_arg = {
 
 def _load_backbone(model_fn, weights, pretrained):
     model = model_fn(weights=weights if pretrained else None)
-    return nn.Sequential(*list(model.children())[:-4])
+    return nn.Sequential(*list(model.children())[:-3])
