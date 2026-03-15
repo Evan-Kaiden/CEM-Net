@@ -81,7 +81,7 @@ class EvidenceMapModule(nn.Module):
                               mode="bilinear", align_corners=False)
 
         upscaled = self.final_conv(x)
-        maps = self.entmax(upscaled, dim=-1)
+        maps = self.entmax(upscaled, dim=1)
 
     
         logits_full = maps.sum(dim=(-2, -1))
