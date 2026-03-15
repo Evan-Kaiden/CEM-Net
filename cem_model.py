@@ -17,9 +17,9 @@ class SpatialAttention(nn.Module):
         super().__init__()
         
         self.init_conv = nn.Sequential(
-            nn.Conv2d(in_channels, in_channels // 8, kernel_size=3),
+            nn.Conv2d(in_channels, in_channels // 8, kernel_size=3, padding=1, padding_mode='reflect'),
             nn.ReLU(),
-            nn.Conv2d(in_channels // 8, in_channels // 16, kernel_size=3),
+            nn.Conv2d(in_channels, in_channels // 8, kernel_size=3, padding=1, padding_mode='reflect'),
             nn.ReLU()
         )
         self.final_conv = nn.Conv2d(in_channels // 16, 1, kernel_size=1)
@@ -28,14 +28,12 @@ class SpatialAttention(nn.Module):
         nn.init.constant_(self.final_conv.bias, val=0)
 
     def forward(self, x):
-        original_size = x.shape[-2:]
         original_x = x
 
         feat = self.init_conv(x)
         logits = self.final_conv(feat) 
 
         attn = torch.sigmoid(logits / 0.3)
-        attn = F.interpolate(attn, size=original_size, mode="bilinear", align_corners=False)
 
         attended = original_x * attn 
 
