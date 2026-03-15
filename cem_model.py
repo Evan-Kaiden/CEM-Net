@@ -49,6 +49,7 @@ class CBAM(nn.Module):
         )
         # Spatial attention
         self.spatial_conv = nn.Conv2d(2, 1, kernel_size=7, padding=3)
+        self.spatial_bn   = nn.BatchNorm2d(1) 
 
     def forward(self, x):
         # Channel gate
@@ -61,7 +62,7 @@ class CBAM(nn.Module):
         # Spatial gate
         sp = torch.cat([x.mean(dim=1, keepdim=True),
                         x.amax(dim=1, keepdim=True)], dim=1)
-        sp_attn = self.spatial_conv(sp).sigmoid()
+        sp_attn = self.spatial_bn(self.spatial_conv(sp)).sigmoid()
         return x * sp_attn, sp_attn
 
 class CEMModelWrapper(nn.Module):
