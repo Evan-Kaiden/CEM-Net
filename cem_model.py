@@ -4,6 +4,14 @@ import torch.nn.functional as F
 
 from cem_layer import EvidenceMapModule
 
+def normalize_attn(attn, eps=1e-6, clip_low=0.05, clip_high=0.95):
+    B = attn.shape[0]
+    flat = attn.view(B, -1)
+    mn = flat.min(dim=1).values.view(B, 1, 1, 1)
+    mx = flat.max(dim=1).values.view(B, 1, 1, 1)
+    normalized = (attn - mn) / (mx - mn + eps)
+    return normalized.clamp(clip_low, clip_high)
+
 class SpatialSoftmaxAttention(nn.Module):
     def __init__(self, in_channels, temperature=5.0):
         super().__init__()
@@ -111,6 +119,7 @@ class CEMModelWrapper(nn.Module):
             if return_maps:
                 attn_up = F.interpolate(attn, size=maps.shape[-2:], 
                                     mode='bilinear', align_corners=False)
-                return logits, maps, attn_up
+                norm_attn = normalize_attn(attn_up)
+                return logits, maps, norm_attn
             else:
                 return logits
