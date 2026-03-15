@@ -161,3 +161,26 @@ def attn_distribution_loss(attn, device, top_spike_fraction=0.1):
     target = target.unsqueeze(0).expand(B, -1)                 # (B, N)
 
     return F.mse_loss(sorted_attn, target)
+
+def laplacian_smoothness_loss(attn):
+    """
+    Penalizes sharp transitions by computing the Laplacian.
+    A dot has high curvature at its edge — this penalizes that.
+    attn: (B, 1, H, W)
+    """
+    lap_x = attn[:, :, 2:, :] - 2 * attn[:, :, 1:-1, :] + attn[:, :, :-2, :]
+    lap_y = attn[:, :, :, 2:] - 2 * attn[:, :, :, 1:-1] + attn[:, :, :, :-2]
+    return lap_x.pow(2).mean() + lap_y.pow(2).mean()
+
+def peak_spread_loss(attn):
+    """
+    Penalize maps where one pixel holds most of the mass.
+    attn: (B, 1, H, W)
+    """
+    B = attn.shape[0]
+    flat = attn.view(B, -1)              # (B, N)
+    peak = flat.max(dim=-1).values       # (B,)
+    total = flat.sum(dim=-1)             # (B,)
+    # peak/total → 1.0 for a dot, → 0.0 for a spread blob
+    # minimize this ratio
+    return (peak / (total + 1e-6)).mean()

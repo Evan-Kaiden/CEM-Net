@@ -12,74 +12,35 @@ def normalize_attn(attn, eps=1e-6, clip_low=0.05, clip_high=0.95):
     normalized = (attn - mn) / (mx - mn + eps)
     return normalized.clamp(clip_low, clip_high)
 
-class SpatialSoftmaxAttention(nn.Module):
-    def __init__(self, in_channels, temperature=5.0):
+class SpatialAttention(nn.Module):
+    def __init__(self, in_channels):
         super().__init__()
         
         self.init_conv = nn.Sequential(
-            nn.Conv2d(in_channels, in_channels, kernel_size=3, padding=1, padding_mode="reflect"),
+            nn.Conv2d(in_channels, in_channels // 8, kernel_size=3),
             nn.ReLU(),
-            nn.Conv2d(in_channels, in_channels, kernel_size=3, padding=1, padding_mode="reflect"),
+            nn.Conv2d(in_channels // 8, in_channels // 16, kernel_size=3),
             nn.ReLU()
         )
-        self.final_conv = nn.Conv2d(in_channels, 1, kernel_size=1)
-        self.temperature = temperature
+        self.final_conv = nn.Conv2d(in_channels // 16, 1, kernel_size=1)
 
         nn.init.normal_(self.final_conv.weight, mean=0, std=0.01)
         nn.init.constant_(self.final_conv.bias, val=0)
 
     def forward(self, x):
-        x = self.init_conv(x)
-        x = F.relu(x)
-        logits = self.final_conv(x)
+        original_size = x.shape[-2:]
+        original_x = x
+
+        feat = self.init_conv(x)
+        logits = self.final_conv(feat) 
 
         attn = torch.sigmoid(logits / 0.3)
-        attended = x * attn
+        attn = F.interpolate(attn, size=original_size, mode="bilinear", align_corners=False)
+
+        attended = original_x * attn 
 
         return attended, attn
 
-class ChannelPool(nn.Module):
-    def forward(self, x):
-        max_pool = x.amax(dim=1, keepdim=True)
-        avg_pool = x.mean(dim=1, keepdim=True)
-        return torch.cat([max_pool, avg_pool], dim=1)
-    
-class SpatialGate(nn.Module):
-    def __init__(self):
-        super().__init__()
-        self.compress = ChannelPool()
-        self.spatial = nn.Sequential(
-            nn.ReflectionPad2d(3),
-            nn.Conv2d(2, 1, kernel_size=7, padding=0),
-            nn.BatchNorm2d(1),
-        )
-
-    def forward(self, x):
-        x_compress = self.compress(x)
-        x_out = self.spatial(x_compress)
-        scale = torch.sigmoid(x_out)
-        return x * scale, scale
-
-class CBAM(nn.Module):
-    def __init__(self, in_channels, reduction=16):
-        super().__init__()
-        # Channel attention
-        self.channel_fc = nn.Sequential(
-            nn.Linear(in_channels, in_channels // reduction),
-            nn.ReLU(),
-            nn.Linear(in_channels // reduction, in_channels),
-        )
-        # Spatial attention
-        self.spatial_gate = SpatialGate()
-
-    def forward(self, x):
-        # Channel gate
-        avg = x.mean(dim=(-2,-1))
-        mxp = x.amax(dim=(-2,-1))
-        ch_attn = self.channel_fc(avg) + self.channel_fc(mxp)
-        ch_attn = ch_attn.unsqueeze(-1).unsqueeze(-1).sigmoid()
-        x = x * ch_attn
-        return self.spatial_gate(x)
 
 class CEMModelWrapper(nn.Module):
     def __init__(self, backbone, num_classes, input_size: int,
@@ -119,8 +80,7 @@ class CEMModelWrapper(nn.Module):
             num_classes, size_after_backbone, input_size,
             skip_channels_per_stage=skip_channels,
         )
-        # self.attn_head = SpatialSoftmaxAttention(in_channels)
-        self.attn_head = CBAM(in_channels)
+        self.attn_head = SpatialAttention(in_channels)
         self.attn_classifier = nn.Sequential(
             nn.Conv2d(in_channels, in_channels // 2, 3, padding=1),
             nn.BatchNorm2d(in_channels // 2),
