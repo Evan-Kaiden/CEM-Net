@@ -40,7 +40,6 @@ class EvidenceMapModule(nn.Module):
 
         self.num_classes = num_classes + 1  # +1 for NONE
         self.target_size = original_image_dimension
-        self.entmax15 = entmax15
 
         self.skip_channels_per_stage: list[int] = skip_channels_per_stage or []
 
@@ -67,7 +66,7 @@ class EvidenceMapModule(nn.Module):
         
         self.final_conv = nn.Conv2d(channels, self.num_classes, kernel_size=1)
 
-    def forward(self, x, attn, skips: list[torch.Tensor] | None = None, return_maps=False):
+    def forward(self, x, skips: list[torch.Tensor] | None = None):
         skips = skips or []
 
         for i, stage in enumerate(self.stages):
@@ -79,13 +78,9 @@ class EvidenceMapModule(nn.Module):
                               mode="bilinear", align_corners=False)
 
         upscaled = self.final_conv(x)
-        maps = self.entmax15(upscaled, dim=1)
+        maps = F.softmax(upscaled, dim=-1)
 
-        attended = maps * attn
-        attn_mass = attn.sum(dim=(-2, -1), keepdim=True) + 1e-6
-        logits_full = attended.sum(dim=(-2, -1)) / attn_mass.squeeze(-1).squeeze(-1)
+    
+        logits_full = maps.sum(dim=(-2, -1))
         logits = logits_full[:, :-1]
-
-        if return_maps:
-            return logits, maps, attn
-        return logits
+        return logits, maps

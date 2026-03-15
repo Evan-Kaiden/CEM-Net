@@ -16,14 +16,11 @@ class SpatialSoftmaxAttention(nn.Module):
         nn.init.constant_(self.final_conv.bias, val=0)
 
     def forward(self, x):
-        B, C, H, W = x.shape
-
         x = self.init_conv(x)
         x = F.relu(x)
         logits = self.final_conv(x)
 
         attn = torch.sigmoid(logits / 0.3)
-
         attended = x * attn
 
         return attended, attn
@@ -110,7 +107,10 @@ class CEMModelWrapper(nn.Module):
             logits = x.mean(dim=(-2,-1))
             return logits, attn
         else:
-            return self.evidence_mapper(
-                features, attn, skips=skips,
-                return_maps=return_maps,
-            )
+            logits, maps = self.evidence_mapper(features, skips=skips)
+            if return_maps:
+                attn_up = F.interpolate(attn, size=maps.shape[-2:], 
+                                    mode='bilinear', align_corners=False)
+                return logits, maps, attn_up
+            else:
+                return logits
