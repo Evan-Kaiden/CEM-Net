@@ -9,7 +9,8 @@ from tqdm import tqdm
 
 from utils import print_row
 from viz import plot_masks_together, plot_attention_only
-from losses import ce_loss_func, tv_loss_func, mse_loss, spatial_entropy_loss
+from losses import ce_loss_func, tv_loss_func, attention_alignment_loss, spatial_entropy_loss, topk_peak_loss
+
 
 
 def train_one_epoch(args, epoch, model, trainloader, optimizer, scheduler, device, pretrain):
@@ -17,87 +18,52 @@ def train_one_epoch(args, epoch, model, trainloader, optimizer, scheduler, devic
     num_batches = len(trainloader)
     total_loss  = 0.0
 
-    metrics = {"ce": 0.0, "tv": 0.0, "masking": 0.0, "entropy" : 0.0, "sparsity" : 0.0,
-               "bg_percent": 0.0, "correct": 0, "total": 0}
+    if pretrain:
+        metrics = {"ce": 0.0, "tv": 0.0, "active": 0.0, "topk": 0.0,
+                   "bg_percent": 0.0, "correct": 0, "total": 0}
+    else:
+        metrics = {"ce": 0.0, "alignment": 0.0,
+                   "bg_percent": 0.0, "correct": 0, "total": 0}
 
     for images, targets in tqdm(trainloader, leave=False):
-        images  = images.to(device)
+        images = images.to(device)
         targets = targets.to(device)
         optimizer.zero_grad()
 
         if pretrain:
             logits, attn = model(images, train_attention=True)
+
             ce = ce_loss_func(logits, targets)
-            # masking = masking_consistency_loss(model, images, logits, attn, targets)
-            
-            loss = args["lamb_ce"] * ce
-            
-            entropy = spatial_entropy_loss(attn)
-            attn_flat = attn.view(attn.shape[0], -1)
+            peak_loss = topk_peak_loss(attn)
+            tv_loss = tv_loss_func(attn)
 
-            bin_loss = (attn_flat * (1 - attn_flat)).mean()
-            k_percent = 0.05 
-
-            B, C, H, W = attn.shape
-            attn_flat = attn.view(B, C, -1)
-
-            k = max(1, int(k_percent * H * W))
-            topk_vals = attn_flat.topk(k, dim=-1).values
-
-            peak_loss = -topk_vals.mean()
-
-            loss = (
-                args["lamb_ce"] * ce
-                + 0.07 * attn.mean()
-                + 0.05 * peak_loss
-                + 0.07 * tv_loss_func(attn)
-                # + 0.1 * bin_loss
-            )
+            loss = (args["lamb_ce"] * ce
+                  + args["lamb_active"] * attn.mean()
+                  + args["lamb_peak"] * peak_loss
+                  + args["lamb_tv"] * tv_loss)
 
             metrics["ce"] += args["lamb_ce"] * ce.item()
-            metrics["masking"] += 0 #args["lamb_masking"]  * masking.item()
-            metrics["entropy"] += args["lamb_entropy"]  * entropy.item()
-            bg_percent = 0.0
+            metrics["active"] += args["lamb_active"] * attn.mean().item()
+            metrics["topk"] += args["lamb_peak"] * peak_loss.item()
+            metrics["tv"] += args["lamb_tv"] * tv_loss.item()
 
         else:
-            # full training — attn_head frozen, evidence_mapper trains
             logits, maps, attn = model(images, return_maps=True)
-            bg_percent = (maps.argmax(dim=1) == maps.shape[1] - 1).float().mean().item()
-
-            # we want true class map to match attention
-            # we want background channel to match 1-attention 
-            # we want all other classes to be all 0's
-
-
-            B, C, H, W = maps.shape
-
-            target_map = maps[torch.arange(B), targets]
-
-            bg_map = maps[:, -1]
-
-            mask = torch.ones(B, C, dtype=torch.bool, device=maps.device)
-            mask[torch.arange(B), targets] = False
-
-            all_other_maps = maps[mask].view(B, C-1, H, W) 
 
             ce = ce_loss_func(logits, targets)
-            # tv = tv_loss_func(maps)
+            attention_alignment = attention_alignment_loss(maps, attn, targets)
 
-            # masking = masking_consistency_loss(model, images, logits, attn, targets)
             loss = (args["lamb_ce"] * ce
-                #   + args["lamb_tv"] * tv
-                #   + args["lamb_masking"] * masking
-                #   + 0.1 * deletion_loss(logits, maps, images, model)
-                  - 0.1 * bg_percent)
+                  + args["lamb_alignment"] * attention_alignment)
 
-            metrics["tv"] += 0
+            metrics["ce"] += args["lamb_ce"] * ce.item()
+            metrics["alignment"] += args["lamb_alignment"] * attention_alignment.item()
+            metrics["bg_percent"] += (maps.argmax(dim=1) == maps.shape[1] - 1).float().mean().item()
 
         total_loss += loss.item()
         loss.backward()
         optimizer.step()
 
-        metrics["ce"] += args["lamb_ce"] * ce_loss_func(logits, targets).item() if pretrain else args["lamb_ce"] * ce.item()
-        metrics["bg_percent"] += bg_percent
         metrics["correct"] += (logits.argmax(dim=-1) == targets).sum().item()
         metrics["total"] += targets.numel()
 
@@ -109,12 +75,21 @@ def train_one_epoch(args, epoch, model, trainloader, optimizer, scheduler, devic
     acc = metrics["correct"] / max(1, metrics["total"])
     lr = optimizer.param_groups[0]["lr"]
 
-    return (acc,
-            metrics["ce"] / n,
-            metrics["tv"] / n,
-            metrics["entropy"] / n,
-            metrics["bg_percent"] / n,
-            lr)
+    if pretrain:
+        return (acc,
+                metrics["ce"] / n,
+                metrics["tv"] / n,
+                metrics["active"] / n,
+                metrics["topk"] / n,
+                lr)
+    else:
+        return (acc,
+                metrics["ce"] / n,
+                metrics["alignment"] / n,
+                metrics["bg_percent"] / n,
+                lr)
+
+
 
 
 def test(args, epoch, model, testloader, dset, device, pretrain=False):
@@ -147,33 +122,39 @@ def test(args, epoch, model, testloader, dset, device, pretrain=False):
 
 def _save(model, scheduler, config, epoch, test_loss, test_acc):
     torch.save({
-        "epoch":       epoch + 1,
-        "test_loss":   test_loss,
-        "test_acc":    test_acc * 100,
+        "epoch": epoch + 1,
+        "test_loss": test_loss,
+        "test_acc": test_acc * 100,
         "model_state": model.state_dict(),
-        "config":      config,
+        "config": config,
     }, os.path.join(config["run_dir"], "state.pth"))
 
 
 def _run_epoch(tag, pretrain, epoch, model, trainloader, testloader,
                optimizer, scheduler, dset, config, device):
     start = time.time()
-    acc, avg_ce, avg_tv, avg_entropy, avg_bg, lr = train_one_epoch(
-        config, epoch, model, trainloader, optimizer, scheduler, device, pretrain
-    )
+
+    if pretrain:
+        acc, avg_ce, avg_tv, avg_active, avg_topk, lr = train_one_epoch(
+            config, epoch, model, trainloader, optimizer, scheduler, device, pretrain
+        )
+    else:
+        acc, avg_ce, avg_alignment, avg_bg, lr = train_one_epoch(
+            config, epoch, model, trainloader, optimizer, scheduler, device, pretrain
+        )
+
     test_loss, test_acc = test(config, epoch, model, testloader, dset, device, pretrain)
     epoch_time = int(time.time() - start)
 
     if pretrain:
-        names = ('train acc %', 'test acc %', 'ce', 'entropy', 'lr', 'epoch time')
-        vals  = [acc, test_acc, avg_ce, avg_entropy, lr, epoch_time]
+        names = ('train acc %', 'test acc %', 'ce', 'tv', 'active', 'topk', 'lr', 'epoch time')
+        vals = (acc * 100, test_acc * 100, avg_ce, avg_tv, avg_active, avg_topk, lr, epoch_time)
     else:
-        names = ('train acc %', 'test acc %', 'ce', 'tv', 'background', 'lr', 'epoch time')
-        vals  = [acc, test_acc, avg_ce, avg_tv,  avg_bg, lr, epoch_time]
+        names = ('train acc %', 'test acc %', 'ce', 'alignment', 'bg %', 'lr', 'epoch time')
+        vals = (acc * 100, test_acc * 100, avg_ce, avg_alignment, avg_bg * 100, lr, epoch_time)
 
-    print_row(f"{tag}{epoch}", vals, names, config["run_dir"], print_header = (epoch==0))
+    print_row(f"{tag}{epoch}", vals, names, config["run_dir"], print_header=(epoch == 0))
     _save(model, scheduler, config, epoch, test_loss, test_acc)
-
 
 def train(pretrain_epochs, epochs, model, optimizer, dset, scheduler, config, start_epoch=0, device=None):
     trainloader = dset.train_loader
@@ -190,3 +171,5 @@ def train(pretrain_epochs, epochs, model, optimizer, dset, scheduler, config, st
     for epoch in range(start_epoch, epochs):
         _run_epoch("", False, epoch, model, trainloader, testloader,
                    optimizer, scheduler, dset, config, device)
+        
+

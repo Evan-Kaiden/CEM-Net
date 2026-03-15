@@ -8,83 +8,150 @@ import matplotlib.patches as mpatches
 
 def plot_masks_together(mask, attn, image, dset, runs_dir, epoch, save_name):
     """
-    mask:  (C+1, H, W) - entmax class evidence maps
+    mask:  (C+1, H, W) - entmax class evidence maps (last channel = background)
     attn:  (1, H, W)   - spatial attention in (0,1)
     image: (3, H, W)   - normalized input image
-    """
-    class_id_to_name = {i: name for i, name in enumerate(dset.classes)}
 
-    # --- detach and upscale everything to 224 for visibility
+    Layout: 4 rows x (C+1) cols
+      Row 0: Global views (cols 0-3 only)
+             [0] raw image  [1] FG/BG by last channel  [2] FG/BG by attn median  [3] argmax class map
+      Row 1: Per-channel raw heatmap (one col per channel)
+      Row 2: Per-channel heatmap overlaid on image
+      Row 3: Per-channel FG/BG split (above-median pixels highlighted per channel)
+    """
+    # build index -> name, appending "Background" for the last channel
+    class_id_to_name = {i: name for i, name in enumerate(dset.classes)}
+    num_channels = mask.shape[0]          # C+1
+    num_classes  = num_channels - 1       # C
+    class_id_to_name[num_classes] = "Background"
+
+    # ── upsample everything to 224 ──────────────────────────────────────
     SIZE = 224
     mask  = F.interpolate(mask.detach().unsqueeze(0),  size=SIZE, mode='bilinear', align_corners=False).squeeze(0)
     attn  = F.interpolate(attn.detach().unsqueeze(0),  size=SIZE, mode='bilinear', align_corners=False).squeeze(0)
     image = F.interpolate(image.detach().unsqueeze(0), size=SIZE, mode='bilinear', align_corners=False).squeeze(0)
 
-    mask  = mask.cpu().numpy()   # (C+1, H, W)
-    attn  = attn.cpu().numpy()   # (1, H, W)
-    image = image.cpu().numpy()  # (3, H, W)
+    mask  = mask.cpu().numpy()    # (C+1, H, W)
+    attn  = attn.cpu().numpy()    # (1, H, W)
+    image = image.cpu().numpy()   # (3, H, W)
 
     image = np.transpose(image, (1, 2, 0))
     image = image * np.array(dset.std) + np.array(dset.mean)
     image = np.clip(image, 0, 1)
 
-    attn_map   = attn[0]                          # (H, W), values in (0,1)
-    argmax_map = np.argmax(mask, axis=0)          # (H, W), winner class per pixel
-    fg_mask    = attn_map > np.median(attn_map)   # boolean fg region
+    attn_map   = attn[0]                   # (H, W)
+    argmax_map = np.argmax(mask, axis=0)   # (H, W)
 
-    colors = plt.cm.tab10(np.linspace(0, 1, mask.shape[0]))
-    num_classes = mask.shape[0] - 1               # exclude background
+    # global FG/BG masks
+    fg_last_ch   = (argmax_map != num_classes)          # True = FG (not background winner)
+    fg_attn_med  = (attn_map > np.median(attn_map))     # True = FG by attention median
 
-    fig, axes = plt.subplots(1, 3, figsize=(15, 5))
+    # consistent color per channel across all rows
+    colors = plt.cm.tab10(np.linspace(0, 1, num_channels))
 
-    # ── Panel 1: class map (what) ──────────────────────────────────────────
-    ax = axes[0]
+    n_rows, n_cols = 4, num_channels
+    fig, axes = plt.subplots(n_rows, n_cols,
+                             figsize=(n_cols * 2.2, n_rows * 2.4),
+                             squeeze=False)
+
+    # hide every axis by default; re-enable individually
+    for ax in axes.flatten():
+        ax.axis('off')
+
+    # ── helper: render a boolean FG/BG mask as a 2-color RGBA overlay ───
+    def fg_bg_rgba(fg_bool, fg_color_rgb, fg_alpha=0.55, bg_alpha=0.35):
+        """Returns an RGBA image (H, W, 4) with fg_color for True pixels."""
+        out = np.zeros((*fg_bool.shape, 4), dtype=float)
+        out[fg_bool]  = [*fg_color_rgb, fg_alpha]
+        out[~fg_bool] = [0.15, 0.15, 0.15, bg_alpha]
+        return out
+
+    # ── helper: quick axis setup ─────────────────────────────────────────
+    def prep_ax(ax, title):
+        ax.axis('on')
+        ax.set_xticks([])
+        ax.set_yticks([])
+        ax.set_title(title, fontsize=7, pad=3)
+
+    # ════════════════════════════════════════════════════════════════════
+    # ROW 0 — global views (only cols 0-3 are used)
+    # ════════════════════════════════════════════════════════════════════
+
+    # Col 0 — raw input image
+    ax = axes[0, 0]
+    ax.imshow(image)
+    prep_ax(ax, "Input Image")
+
+    # Col 1 — FG/BG by last channel being the argmax
+    ax = axes[0, 1]
+    ax.imshow(image)
+    ax.imshow(fg_bg_rgba(fg_last_ch, [0.2, 0.85, 0.2]))
+    prep_ax(ax, "FG/BG (last-ch argmax)")
+
+    # Col 2 — FG/BG by attention median threshold
+    ax = axes[0, 2]
+    ax.imshow(image)
+    ax.imshow(fg_bg_rgba(fg_attn_med, [0.2, 0.6, 1.0]))
+    prep_ax(ax, "FG/BG (attn median)")
+
+    # Col 3 — winner class per pixel (argmax coloured by class)
+    ax = axes[0, 3]
     ax.imshow(image)
     legend_handles = []
     for i in range(num_classes):
         region = (argmax_map == i).astype(float)
         if np.any(region):
             ax.contourf(region, levels=[0.5, 1], colors=[colors[i]], alpha=0.35)
-            ax.contour( region, levels=[0.5],    colors=[colors[i]], linewidths=1.5)
-            legend_handles.append(mpatches.Patch(color=colors[i], alpha=0.6,
+            ax.contour( region, levels=[0.5],    colors=[colors[i]], linewidths=1.2)
+            legend_handles.append(mpatches.Patch(color=colors[i], alpha=0.7,
                                                   label=class_id_to_name[i]))
-    ax.legend(handles=legend_handles, loc='upper right', fontsize=7, framealpha=0.7)
-    ax.set_title("Class Maps (what)")
-    ax.axis("off")
+    ax.legend(handles=legend_handles, loc='upper right', fontsize=5, framealpha=0.7)
+    prep_ax(ax, "Winner Class (argmax)")
 
-    # ── Panel 2: attention map (where) ────────────────────────────────────
-    ax = axes[1]
-    ax.imshow(image)
-    attn_overlay = ax.imshow(attn_map, cmap='hot', alpha=0.55, vmin=0, vmax=1)
-    # draw the fg/bg threshold contour so you can see the split used in loss
-    ax.contour(fg_mask.astype(float), levels=[0.5], colors=['cyan'],
-               linewidths=1.5, linestyles='--')
-    plt.colorbar(attn_overlay, ax=ax, fraction=0.046, pad=0.04)
-    ax.set_title("Attention Map (where)")
-    ax.axis("off")
+    # ════════════════════════════════════════════════════════════════════
+    # ROWS 1-3 — per-channel views, one column per channel
+    # ════════════════════════════════════════════════════════════════════
 
-    # ── Panel 3: attended class map (what × where) ────────────────────────
-    # This is the view that directly corresponds to your logit computation.
-    # Only shows class assignments inside the attended region.
-    ax = axes[2]
-    ax.imshow(image)
-    legend_handles = []
-    for i in range(num_classes):
-        # only show pixels where: this class wins AND attention is above median
-        region = ((argmax_map == i) & fg_mask).astype(float)
-        if np.any(region):
-            # scale alpha by mean attention strength in this region for visual clarity
-            mean_attn = attn_map[region.astype(bool)].mean() if region.sum() > 0 else 0.4
-            ax.contourf(region, levels=[0.5, 1], colors=[colors[i]],
-                        alpha=float(np.clip(mean_attn * 0.8, 0.2, 0.7)))
-            ax.contour( region, levels=[0.5], colors=[colors[i]], linewidths=1.5)
-            legend_handles.append(mpatches.Patch(color=colors[i], alpha=0.6,
-                                                  label=class_id_to_name[i]))
-    ax.legend(handles=legend_handles, loc='upper right', fontsize=7, framealpha=0.7)
-    ax.set_title("Attended Evidence (what × where)")
-    ax.axis("off")
+    for i in range(num_channels):
+        ch_map    = mask[i]                          # (H, W)
+        ch_min    = ch_map.min()
+        ch_max    = ch_map.max() if ch_map.max() > ch_map.min() else ch_map.min() + 1e-6
+        ch_median = np.median(ch_map)
+        ch_fg     = ch_map > ch_median               # per-channel FG/BG
 
-    fig.suptitle(f"Epoch {epoch}", fontsize=11, y=1.01)
+        ch_name   = class_id_to_name[i]
+        col_color = colors[i]                        # RGBA from tab10
+
+        # ── Row 1: raw heatmap (no image underneath, full channel range) ──
+        ax = axes[1, i]
+        im = ax.imshow(ch_map, cmap='hot', vmin=ch_min, vmax=ch_max)
+        prep_ax(ax, ch_name)
+        plt.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
+
+        # ── Row 2: heatmap overlaid on image ─────────────────────────────
+        ax = axes[2, i]
+        ax.imshow(image)
+        ax.imshow(ch_map, cmap='hot', alpha=0.55, vmin=ch_min, vmax=ch_max)
+        prep_ax(ax, ch_name)
+
+        # ── Row 3: per-channel FG/BG split (median threshold) ────────────
+        ax = axes[3, i]
+        ax.imshow(image)
+        ax.imshow(fg_bg_rgba(ch_fg, col_color[:3], fg_alpha=0.6, bg_alpha=0.25))
+        prep_ax(ax, ch_name)
+
+    # ── row labels on the left-most visible column ──────────────────────
+    row_labels = [
+        "Global Views",
+        "Channel Heatmaps",
+        "Heatmap × Image",
+        "FG/BG per Channel\n(median thresh)",
+    ]
+    for r, label in enumerate(row_labels):
+        axes[r, 0].set_ylabel(label, fontsize=8, fontweight='bold',
+                               rotation=90, labelpad=6, va='center')
+
+    fig.suptitle(f"Epoch {epoch}", fontsize=12)
     plt.tight_layout()
 
     save_path = os.path.join(runs_dir, f"figs/epoch{epoch}")

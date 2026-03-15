@@ -23,12 +23,11 @@ parser.add_argument('--backbone', type=str, default='resnet18', choices=['resnet
                                                                         ])
 
 parser.add_argument('--lamb_ce', type=float, default=1.)
-parser.add_argument('--lamb_tv', type=float, default=0.02)
-parser.add_argument('--lamb_contrast', type=float, default=0.3)
+parser.add_argument('--lamb_tv', type=float, default=0.07)
+parser.add_argument('--lamb_peak', type=float, default=0.05)
+parser.add_argument('--lamb_active', type=float, default=0.07)
 
-parser.add_argument('--lamb_entropy', type=float, default=0.05)
-parser.add_argument('--lamb_sparsity', type=float, default=0.001)
-parser.add_argument('--lamb_masking', type=float, default=1.)
+parser.add_argument('--lamb_alignment', type=float, default=0.5)
 
 
 

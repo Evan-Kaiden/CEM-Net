@@ -104,3 +104,37 @@ def spatial_entropy_loss(attn):
 
 def mse_loss(pred, true):
     return F.mse_loss(pred, true)
+
+
+
+def attention_alignment_loss(maps, attn, targets, margin=0.1, reduction='mean'):
+    B, Cplus1, H, W = maps.shape
+    C = Cplus1 - 1
+
+    attn = attn.squeeze(1)   # (B, H, W)
+
+    target_map = maps[torch.arange(B), targets]        # (B, H, W)
+    bg_map     = maps[:, -1]                           # (B, H, W)
+
+    mask = torch.ones(B, C, dtype=torch.bool, device=maps.device)
+    mask[torch.arange(B), targets] = False
+    all_other_maps = maps[:, :-1][mask].view(B, C - 1, H, W)   # (B, C-1, H, W)
+
+    loss_target = F.mse_loss(target_map, attn,         reduction=reduction)
+    loss_bg     = F.mse_loss(bg_map,     1.0 - attn,   reduction=reduction)
+
+    # penalise any other-class pixel that is not at least `margin` below the target
+    excess = all_other_maps - target_map.unsqueeze(1) + margin   # (B, C-1, H, W)
+    loss_other = F.relu(excess)
+    loss_other = loss_other.mean() if reduction == 'mean' else loss_other.sum()
+
+    return loss_target + loss_bg + loss_other
+
+
+def topk_peak_loss(attn, k_percent = 0.05 ):
+    attn_flat = attn.view(attn.shape[0], -1)
+    B, C, H, W = attn.shape
+    attn_flat = attn.view(B, C, -1)
+    k = max(1, int(k_percent * H * W))
+    topk_vals = attn_flat.topk(k, dim=-1).values
+    return -topk_vals.mean()
