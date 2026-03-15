@@ -38,6 +38,32 @@ class SpatialSoftmaxAttention(nn.Module):
 
         return attended, attn
 
+class CBAM(nn.Module):
+    def __init__(self, in_channels, reduction=16):
+        super().__init__()
+        # Channel attention
+        self.channel_fc = nn.Sequential(
+            nn.Linear(in_channels, in_channels // reduction),
+            nn.ReLU(),
+            nn.Linear(in_channels // reduction, in_channels),
+        )
+        # Spatial attention
+        self.spatial_conv = nn.Conv2d(2, 1, kernel_size=7, padding=3)
+
+    def forward(self, x):
+        # Channel gate
+        avg = x.mean(dim=(-2,-1))
+        mxp = x.amax(dim=(-2,-1))
+        ch_attn = self.channel_fc(avg) + self.channel_fc(mxp)
+        ch_attn = ch_attn.unsqueeze(-1).unsqueeze(-1).sigmoid()
+        x = x * ch_attn
+
+        # Spatial gate
+        sp = torch.cat([x.mean(dim=1, keepdim=True),
+                        x.amax(dim=1, keepdim=True)], dim=1)
+        sp_attn = self.spatial_conv(sp).sigmoid()
+        return x * sp_attn, sp_attn
+
 class CEMModelWrapper(nn.Module):
     def __init__(self, backbone, num_classes, input_size: int,
                  skip_layer_names: list[str] | None = None, device=None):
@@ -76,8 +102,8 @@ class CEMModelWrapper(nn.Module):
             num_classes, size_after_backbone, input_size,
             skip_channels_per_stage=skip_channels,
         )
-        self.attn_head = SpatialSoftmaxAttention(in_channels)
-
+        # self.attn_head = SpatialSoftmaxAttention(in_channels)
+        self.attn_head = CBAM(in_channels)
         self.attn_classifier = nn.Sequential(
             nn.Conv2d(in_channels, in_channels // 2, 3, padding=1),
             nn.BatchNorm2d(in_channels // 2),

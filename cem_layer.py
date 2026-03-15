@@ -46,6 +46,7 @@ class EvidenceMapModule(nn.Module):
         self.skip_channels_per_stage: list[int] = skip_channels_per_stage or []
 
         self.stages = nn.ModuleList()
+        self.entmax = entmax15
         channels = in_channels
         current_h, current_w = in_h, in_w
         stage_idx = 0
@@ -80,7 +81,7 @@ class EvidenceMapModule(nn.Module):
                               mode="bilinear", align_corners=False)
 
         upscaled = self.final_conv(x)
-        maps = F.softmax(upscaled, dim=-1)
+        maps = self.entmax(upscaled, dim=-1)
 
     
         logits_full = maps.sum(dim=(-2, -1))

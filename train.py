@@ -37,11 +37,11 @@ def train_one_epoch(args, epoch, model, trainloader, optimizer, scheduler, devic
             peak_loss = topk_peak_loss(attn)
             tv_loss = tv_loss_func(attn)
 
-            loss = (args["lamb_ce"] * ce
-                  + 0.5 * attn_distribution_loss(attn, attn.device)
-                  + args["lamb_active"] * attn.mean()
-                  + args["lamb_peak"] * peak_loss
-                  + args["lamb_tv"] * tv_loss)
+            loss = (args["lamb_ce"] * ce)
+                #   + 0.5 * attn_distribution_loss(attn, attn.device)
+                #   + args["lamb_active"] * attn.mean()
+                #   + args["lamb_peak"] * peak_loss
+                #   + args["lamb_tv"] * tv_loss)
 
             metrics["ce"] += args["lamb_ce"] * ce.item()
             metrics["active"] += args["lamb_active"] * attn.mean().item()
