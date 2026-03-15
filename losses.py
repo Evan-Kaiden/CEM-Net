@@ -138,3 +138,37 @@ def topk_peak_loss(attn, k_percent = 0.05 ):
     k = max(1, int(k_percent * H * W))
     topk_vals = attn_flat.topk(k, dim=-1).values
     return -topk_vals.mean()
+
+
+def attn_distribution_loss(attn, device, top_spike_fraction=0.1):
+    """
+    Encourages attn to match a right-skewed distribution 
+    with a spike of high-value pixels near 1.
+    
+    Target shape:
+      - most pixels near 0 (background)
+      - smooth right-skewed tail
+      - top `top_spike_fraction` of pixels pushed toward 1
+    """
+    B = attn.shape[0]
+    flat = attn.view(B, -1)          # (B, N)
+    N = flat.shape[1]
+
+    # build target distribution once per call
+    # Beta(0.5, 4) gives right-skewed bulk with most mass near 0
+    # then we replace the top fraction with values near 1
+    beta_dist = torch.distributions.Beta(
+        torch.tensor(0.5), torch.tensor(4.0)
+    )
+    target = beta_dist.sample((N,)).to(device)
+    target, _ = target.sort()
+
+    # override the top fraction with a spike near 1
+    k = max(1, int(N * top_spike_fraction))
+    target[-k:] = torch.linspace(0.85, 1.0, k, device=device)
+
+    # 1D Wasserstein: sort both and take L2
+    sorted_attn, _ = flat.sort(dim=1)                          # (B, N)
+    target = target.unsqueeze(0).expand(B, -1)                 # (B, N)
+
+    return F.mse_loss(sorted_attn, target)
