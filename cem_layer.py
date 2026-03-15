@@ -5,6 +5,8 @@ import torch.nn.functional as F
 
 from entmax import sparsemax, entmax15
 
+
+
 class UpsampleBlock(nn.Module):
     """Single upsampling stage with optional skip connection fusion."""
     def __init__(self, in_channels, skip_channels, out_channels):

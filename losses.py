@@ -111,19 +111,19 @@ def attention_alignment_loss(maps, attn, targets, reduction='mean'):
     B, Cplus1, H, W = maps.shape
     C = Cplus1 - 1
 
-    attn = attn.squeeze(1)   # (B, H, W)
+    attn = attn.squeeze(1)
 
-    target_map = maps[torch.arange(B), targets]        # (B, H, W)
-    bg_map     = maps[:, -1]                           # (B, H, W)
+    target_map = maps[torch.arange(B), targets]
+    bg_map = maps[:, -1]
 
     mask = torch.ones(B, C, dtype=torch.bool, device=maps.device)
     mask[torch.arange(B), targets] = False
-    all_other_maps = maps[:, :-1][mask].view(B, C - 1, H, W)   # (B, C-1, H, W)
+    all_other_maps = maps[:, :-1][mask].view(B, C - 1, H, W)
 
-    loss_target = F.mse_loss(target_map, attn,         reduction=reduction)
-    loss_bg     = F.mse_loss(bg_map,     1.0 - attn,   reduction=reduction)
+    loss_target = F.mse_loss(target_map, attn, reduction=reduction)
+    loss_bg = F.mse_loss(bg_map, 1.0 - attn, reduction=reduction)
 
-    loss_other = all_other_maps ** 2
+    loss_other = all_other_maps
     loss_other = loss_other.mean() if reduction == 'mean' else loss_other.sum()
 
     return loss_target + loss_bg + loss_other
@@ -139,15 +139,6 @@ def topk_peak_loss(attn, k_percent = 0.05):
 
 
 def attn_distribution_loss(attn, device, top_spike_fraction=0.1):
-    """
-    Encourages attn to match a right-skewed distribution 
-    with a spike of high-value pixels near 1.
-    
-    Target shape:
-      - most pixels near 0 (background)
-      - smooth right-skewed tail
-      - top `top_spike_fraction` of pixels pushed toward 1
-    """
     B = attn.shape[0]
     flat = attn.view(B, -1)          # (B, N)
     N = flat.shape[1]

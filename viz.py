@@ -112,10 +112,11 @@ def plot_masks_together(mask, attn, image, dset, runs_dir, epoch, save_name):
     # ROWS 1-3 — per-channel views, one column per channel
     # ════════════════════════════════════════════════════════════════════
 
+    global_min = mask.min()
+    global_max = mask.max() if mask.max() > mask.min() else mask.min() + 1e-6
+
     for i in range(num_channels):
         ch_map    = mask[i]                          # (H, W)
-        ch_min    = ch_map.min()
-        ch_max    = ch_map.max() if ch_map.max() > ch_map.min() else ch_map.min() + 1e-6
         ch_median = np.median(ch_map)
         ch_fg     = ch_map > ch_median               # per-channel FG/BG
 
@@ -124,14 +125,14 @@ def plot_masks_together(mask, attn, image, dset, runs_dir, epoch, save_name):
 
         # ── Row 1: raw heatmap (no image underneath, full channel range) ──
         ax = axes[1, i]
-        im = ax.imshow(ch_map, cmap='hot', vmin=ch_min, vmax=ch_max)
+        im = ax.imshow(ch_map, cmap='hot', vmin=global_min, vmax=global_max)
         prep_ax(ax, ch_name)
         plt.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
 
         # ── Row 2: heatmap overlaid on image ─────────────────────────────
         ax = axes[2, i]
         ax.imshow(image)
-        ax.imshow(ch_map, cmap='hot', alpha=0.55, vmin=ch_min, vmax=ch_max)
+        ax.imshow(ch_map, cmap='hot', alpha=0.55, vmin=global_min, vmax=global_max)
         prep_ax(ax, ch_name)
 
         # ── Row 3: per-channel FG/BG split (median threshold) ────────────
