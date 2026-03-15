@@ -161,14 +161,24 @@ def train(pretrain_epochs, epochs, model, optimizer, dset, scheduler, config, st
     trainloader = dset.train_loader
     testloader  = dset.test_loader
 
+    for param in model.backbone.parameters():
+        param.requires_grad = True
+
     for epoch in range(pretrain_epochs):
         _run_epoch("pretrain-", True, epoch, model, trainloader, testloader,
                    optimizer, scheduler, dset, config, device)
 
     # freeze attention head before main training
+    for param in model.backbone.parameters():
+        param.requires_grad = False
     for param in model.attn_head.parameters():
         param.requires_grad = False
 
+    # rebuild optimizer over only trainable params before main phase
+    optimizer = type(optimizer)(
+        filter(lambda p: p.requires_grad, model.parameters()),
+        **{k: v for k, v in optimizer.defaults.items() if k != 'params'}
+    )
     for epoch in range(start_epoch, epochs):
         _run_epoch("", False, epoch, model, trainloader, testloader,
                    optimizer, scheduler, dset, config, device)
