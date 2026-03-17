@@ -1,10 +1,8 @@
 import torch
 import torch.nn.functional as F
 
-
 def ce_loss_func(logits, targets):
     return F.cross_entropy(logits, targets)
-
 
 def fg_bg_contrast_loss_func(maps, attn, margin=0.3):
     """
@@ -28,15 +26,6 @@ def fg_bg_contrast_loss_func(maps, attn, margin=0.3):
     similarity = F.cosine_similarity(fg_dist, bg_dist, dim=1)
     return F.relu(similarity - margin).mean()
 
-def attn_entropy_loss_func(attn):
-    """
-    Pushes attention values toward 0 or 1 by minimizing entropy.
-    """
-    p = attn.clamp(1e-6, 1 - 1e-6)
-    entropy = -(p * p.log() + (1 - p) * (1 - p).log())
-    return entropy.mean()
-
-
 def tv_loss_func(maps):
     """
     spatially smooth class maps are still desirable.
@@ -47,71 +36,17 @@ def tv_loss_func(maps):
     dy = (maps[:, :, 1:, :] - maps[:, :, :-1, :]).abs().mean()
     return dx + dy
 
-def masking_consistency_loss(model, images, logits, attn, targets):
-    B, _, H, W = images.shape
-
-    attn_up   = F.interpolate(attn, size=(H, W), mode='bilinear', align_corners=False)
-    threshold = attn_up.flatten(2).mean(dim=2, keepdim=True).unsqueeze(-1)
-    fg        = (attn_up > threshold).float()
-    masked_images = images * (1.0 - fg)
-
-    with torch.no_grad():
-        masked_features = model.backbone(masked_images)
-    
-    # use attn_classifier during pretrain, not evidence_mapper
-    masked_attn   = model.attn_head(masked_features)
-    masked_attn   = torch.sigmoid(masked_attn)
-    gated         = masked_features * masked_attn
-    pooled        = gated.mean(dim=(-2, -1))
-    masked_logits = model.attn_classifier(pooled)
-
-    original_score = torch.sigmoid(logits)[torch.arange(B), targets]
-    masked_score   = torch.sigmoid(masked_logits)[torch.arange(B), targets]
-
-    drop = original_score - masked_score
-    return -drop.mean()
-
-
-def deletion_loss(logits, maps, images, model):
-    # predicted class for each image
-    pred_classes = logits.argmax(dim=1)
-
-    # get corresponding class map
-    B, C, H, W = maps.shape
-    mask = maps[torch.arange(B), pred_classes].unsqueeze(1)  # (B,1,H,W)
-
-    # normalize mask to [0,1]
-    mask = mask.sigmoid()
-
-    # remove important region
-    removed_images = images * (1 - mask)
-
-    # forward pass
-    removed_logits = model(removed_images)
-    removed_scores = removed_logits.gather(1, pred_classes.unsqueeze(1)).squeeze(1)
-    orig_scores = logits.gather(1, pred_classes.unsqueeze(1)).squeeze(1)
-
-    # deletion loss
-    delete_loss = torch.relu(removed_scores - orig_scores + 0.2).mean()
-    return delete_loss
-
-
-def spatial_entropy_loss(attn):
-    p = attn.clamp(min=1e-8)
-    entropy = -(p * p.log())
-    return entropy.sum(dim=(2,3)).mean()
-
-
-def mse_loss(pred, true):
-    return F.mse_loss(pred, true)
-
-
-
 def attention_alignment_loss(maps, attn, targets, reduction='mean'):
     B, Cplus1, H, W = maps.shape
     C = Cplus1 - 1
 
     attn = attn.squeeze(1)
+
+    # Normalize attn to [0,1] range per image — prevents collapsed attn poisoning targets
+    flat = attn.view(B, -1)
+    mn = flat.min(dim=1).values.view(B, 1, 1)
+    mx = flat.max(dim=1).values.view(B, 1, 1)
+    attn_norm = (attn - mn) / (mx - mn + 1e-6)
 
     target_map = maps[torch.arange(B), targets]
     bg_map = maps[:, -1]
@@ -120,14 +55,11 @@ def attention_alignment_loss(maps, attn, targets, reduction='mean'):
     mask[torch.arange(B), targets] = False
     all_other_maps = maps[:, :-1][mask].view(B, C - 1, H, W)
 
-    loss_target = F.mse_loss(target_map, attn, reduction=reduction)
-    loss_bg = F.mse_loss(bg_map, 1.0 - attn, reduction=reduction)
+    loss_target = F.mse_loss(target_map, attn_norm, reduction=reduction)
+    loss_bg     = F.mse_loss(bg_map, 1.0 - attn_norm, reduction=reduction)
+    loss_other  = F.mse_loss(all_other_maps, torch.zeros_like(all_other_maps))
 
-    loss_other = all_other_maps
-    loss_other = loss_other.mean() if reduction == 'mean' else loss_other.sum()
-
-    return loss_target + loss_bg + loss_other
-
+    return loss_target + 0.5 * loss_bg + 0.1 * loss_other
 
 def topk_peak_loss(attn, k_percent = 0.05):
     attn_flat = attn.view(attn.shape[0], -1)
@@ -137,50 +69,49 @@ def topk_peak_loss(attn, k_percent = 0.05):
     topk_vals = attn_flat.topk(k, dim=-1).values
     return -topk_vals.mean()
 
-
-def attn_distribution_loss(attn, device, top_spike_fraction=0.1):
-    B = attn.shape[0]
-    flat = attn.view(B, -1)          # (B, N)
-    N = flat.shape[1]
-
-    # build target distribution once per call
-    # Beta(0.5, 4) gives right-skewed bulk with most mass near 0
-    # then we replace the top fraction with values near 1
-    beta_dist = torch.distributions.Beta(
-        torch.tensor(0.5), torch.tensor(4.0)
-    )
-    target = beta_dist.sample((N,)).to(device)
-    target, _ = target.sort()
-
-    # override the top fraction with a spike near 1
-    k = max(1, int(N * top_spike_fraction))
-    target[-k:] = torch.linspace(0.85, 1.0, k, device=device)
-
-    # 1D Wasserstein: sort both and take L2
-    sorted_attn, _ = flat.sort(dim=1)                          # (B, N)
-    target = target.unsqueeze(0).expand(B, -1)                 # (B, N)
-
-    return F.mse_loss(sorted_attn, target)
-
 def laplacian_smoothness_loss(attn):
     """
     Penalizes sharp transitions by computing the Laplacian.
     A dot has high curvature at its edge — this penalizes that.
-    attn: (B, 1, H, W)
     """
     lap_x = attn[:, :, 2:, :] - 2 * attn[:, :, 1:-1, :] + attn[:, :, :-2, :]
     lap_y = attn[:, :, :, 2:] - 2 * attn[:, :, :, 1:-1] + attn[:, :, :, :-2]
     return lap_x.pow(2).mean() + lap_y.pow(2).mean()
 
 def peak_spread_loss(attn):
-    """
-    Penalize maps where one pixel holds most of the mass.
-    attn: (B, 1, H, W)
-    """
-    B = attn.shape[0]
-    flat = attn.view(B, -1)              # (B, N)
-    peak = flat.max(dim=-1).values       # (B,)
-    total = flat.sum(dim=-1)             # (B,)
-    # peak/total → 1.0 for a dot, → 0.0 for a spread blob
-    # minimize this ratio
+    B, C, H, W = attn.shape
+    flat = attn.view(B, C, -1)
+    peak = flat.max(dim=-1).values
+    total = flat.sum(dim=-1)
     return (peak / (total + 1e-6)).mean()
+
+def border_suppression_loss(attn, border=4):
+    """Penalize attention near image borders."""
+    B, _, H, W = attn.shape
+    mask = torch.ones_like(attn)
+    mask[:, :, :border, :] = 0
+    mask[:, :, -border:, :] = 0
+    mask[:, :, :, :border] = 0
+    mask[:, :, :, -border:] = 0
+    return (attn * (1 - mask)).mean()
+
+def activation_loss(attn, target=0.3):
+    """Pull mean attention toward a target value."""
+    return (attn.mean() - target).pow(2)
+
+def attended_diversity_loss(attn, features):
+    import torch.nn.functional as F
+    """
+    Attended features should vary across batch — 
+    if all attentions are the same, pooled features collapse.
+    """
+    # Spatially pool features weighted by attention
+    attended = (features * attn).sum(dim=(-2,-1))  # (B, C)
+    attended = F.normalize(attended, dim=1)
+    
+    # Cosine similarity matrix — penalize high similarity across batch
+    sim = attended @ attended.T  # (B, B)
+    B = sim.shape[0]
+    off_diag = sim - torch.eye(B, device=sim.device)
+    return off_diag.clamp(min=0).mean()
+    

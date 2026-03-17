@@ -2,14 +2,13 @@ import os
 import time
 
 import torch
-import torch.nn as nn
-from torch.optim import Optimizer
-from torch.utils.data import DataLoader
 from tqdm import tqdm
 
 from utils import print_row
 from viz import plot_masks_together, plot_attention_only
-from losses import ce_loss_func, tv_loss_func, attention_alignment_loss, laplacian_smoothness_loss, peak_spread_loss, topk_peak_loss, attn_distribution_loss
+from losses import (ce_loss_func, tv_loss_func, attention_alignment_loss, 
+                    laplacian_smoothness_loss, peak_spread_loss, topk_peak_loss, activation_loss,  
+                    attended_diversity_loss, border_suppression_loss, fg_bg_contrast_loss_func)
 
 
 
@@ -31,39 +30,43 @@ def train_one_epoch(args, epoch, model, trainloader, optimizer, scheduler, devic
         optimizer.zero_grad()
 
         if pretrain:
-            logits, attn = model(images, train_attention=True)
+            logits, attn, features = model(images, train_attention=True)
 
             ce = ce_loss_func(logits, targets)
             peak_loss = topk_peak_loss(attn)
             tv_loss = tv_loss_func(attn)
-            # peak_spread = peak_spread_loss(attn)
-            # dist_loss = attn_distribution_loss(attn, attn.device)
 
             loss = (
                   args["lamb_ce"]     * ce
-                + args["lamb_wass"]   * attn_distribution_loss(attn, attn.device)
-                + args["lamb_active"] * attn.mean()
+                + args["lamb_active"] * activation_loss(attn)
                 + args["lamb_peak"]   * topk_peak_loss(attn)
-                + args["lamb_tv"]     * laplacian_smoothness_loss(attn)
+                + args["lamb_tv_pre"]     * laplacian_smoothness_loss(attn)
                 + args["lamb_spread"] * peak_spread_loss(attn)
+                + args["lamb_border"] *  border_suppression_loss(attn)
+                + args["lamb_diversity"] *  attended_diversity_loss(attn, features)
                 )
 
             metrics["ce"] += args["lamb_ce"] * ce.item()
             metrics["active"] += args["lamb_active"] * attn.mean().item()
             metrics["topk"] += args["lamb_peak"] * peak_loss.item()
-            metrics["tv"] += args["lamb_tv"] * tv_loss.item()
+            metrics["tv"] += args["lamb_tv_pre"] * tv_loss.item()
 
         else:
             logits, maps, attn = model(images, return_maps=True)
-
             ce = ce_loss_func(logits, targets)
-            attention_alignment = attention_alignment_loss(maps, attn, targets)
-
-            loss = (args["lamb_ce"] * ce
-                  + args["lamb_alignment"] * attention_alignment)
+            alignment = attention_alignment_loss(maps, attn, targets)
+            contrast = fg_bg_contrast_loss_func(maps, attn)
+            tv = tv_loss_func(maps)
+        
+            loss = (
+                  args["lamb_ce"]  * ce
+                + args["lamb_alignment"]  * alignment
+                + args["lamb_contrast"]  * contrast 
+                + 0.1  * tv
+            )
 
             metrics["ce"] += args["lamb_ce"] * ce.item()
-            metrics["alignment"] += args["lamb_alignment"] * attention_alignment.item()
+            metrics["alignment"] += args["lamb_alignment"] * alignment.item()
             metrics["bg_percent"] += (maps.argmax(dim=1) == maps.shape[1] - 1).float().mean().item()
 
         total_loss += loss.item()
@@ -113,9 +116,9 @@ def test(args, epoch, model, testloader, dset, device, pretrain=False):
             total += images.size(0)
 
     with torch.no_grad():
-        for i in range(min(10, images.size(0))):
+        for i in range(min(20, images.size(0))):
             if pretrain:
-                _, attn = model(images[i:i+1], train_attention=True)
+                _, attn, _ = model(images[i:i+1], train_attention=True)
                 plot_attention_only(attn.squeeze(0), images[i], dset,
                                     args["run_dir"], f"pretrain_{epoch}", f"attn_{i}.png")
             else:

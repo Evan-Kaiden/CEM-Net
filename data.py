@@ -10,6 +10,8 @@ def get_dataloader(dataset, batch_size):
         return Cifar100DataSet(batch_size)
     if dataset == "stl10":
         return STL10DataSet(batch_size)
+    if dataset == "oxfordpets":
+        return OxfordPetsDataSet(batch_size)
     else:
         raise NotImplementedError
     
@@ -136,3 +138,83 @@ class STL10DataSet():
         )
 
         self.classes = self.trainset.classes
+
+
+ 
+class OxfordPetsDataSet():
+    def __init__(self, batch_size):
+        self.batch_size = batch_size
+ 
+        # Same ImageNet stats — pets dataset images are natural photos
+        self.mean = [0.485, 0.456, 0.406]
+        self.std  = [0.229, 0.224, 0.225]
+ 
+        self.transform = transforms.Compose([
+            transforms.Resize((224, 224)),
+            transforms.ToTensor(),
+            transforms.Normalize(mean=self.mean, std=self.std)
+        ])
+ 
+        self.train_transform = transforms.Compose([
+            transforms.Resize((256, 256)),
+ 
+            # Aggressive crop — pets are often centered, this forces
+            # the attention to find them even when partially cropped
+            transforms.RandomResizedCrop(224, scale=(0.5, 1.0)),
+            transforms.RandomHorizontalFlip(p=0.5),
+            transforms.RandomRotation(15),
+ 
+            transforms.ColorJitter(
+                brightness=0.3,
+                contrast=0.3,
+                saturation=0.3,
+                hue=0.05
+            ),
+            transforms.RandomGrayscale(p=0.1),
+ 
+            transforms.ToTensor(),
+ 
+            # Erasing helps attention not rely on any single patch
+            transforms.RandomErasing(
+                p=0.25,
+                scale=(0.02, 0.2),
+                ratio=(0.3, 3.3),
+                value="random"
+            ),
+ 
+            transforms.Normalize(mean=self.mean, std=self.std)
+        ])
+ 
+        # OxfordIIITPet: 'trainval' = train split, 'test' = test split
+        # target_types='category' gives class label (0-36), 
+        # not segmentation mask — keeps interface identical to other datasets
+        self.trainset = torchvision.datasets.OxfordIIITPet(
+            root="./data",
+            split="trainval",
+            target_types="category",
+            download=True,
+            transform=self.train_transform
+        )
+ 
+        self.testset = torchvision.datasets.OxfordIIITPet(
+            root="./data",
+            split="test",
+            target_types="category",
+            download=True,
+            transform=self.transform
+        )
+ 
+        self.train_loader = torch.utils.data.DataLoader(
+            self.trainset,
+            batch_size=self.batch_size,
+            shuffle=True,
+        )
+ 
+        self.test_loader = torch.utils.data.DataLoader(
+            self.testset,
+            batch_size=self.batch_size,
+            shuffle=False,
+        )
+ 
+        # 37 classes: 25 dog breeds + 12 cat breeds
+        self.classes = [c.replace("_", " ") for c in self.trainset.classes]

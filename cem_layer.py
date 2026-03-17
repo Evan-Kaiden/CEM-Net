@@ -5,7 +5,11 @@ import torch.nn.functional as F
 
 from entmax import sparsemax, entmax15
 
-
+def topk_mean_logits(maps, k_percent=0.1):
+    B, C, H, W = maps[:, :-1].shape
+    flat = maps[:, :-1].view(B, C, -1)
+    k = max(1, int(k_percent * H * W))
+    return flat.topk(k, dim=-1).values.mean(dim=-1)
 
 class UpsampleBlock(nn.Module):
     """Single upsampling stage with optional skip connection fusion."""
@@ -81,9 +85,9 @@ class EvidenceMapModule(nn.Module):
                               mode="bilinear", align_corners=False)
 
         upscaled = self.final_conv(x)
-        maps = self.entmax(upscaled, dim=1)
+        maps = torch.sigmoid(upscaled)
 
     
-        logits_full = maps.sum(dim=(-2, -1))
-        logits = logits_full[:, :-1]
+        # logits_full = maps.sum(dim=(-2, -1))
+        logits = topk_mean_logits(maps)
         return logits, maps

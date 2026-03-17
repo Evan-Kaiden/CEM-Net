@@ -2,6 +2,8 @@ import warnings
 warnings.filterwarnings("ignore", category=UserWarning)
 
 import torch
+import numpy as np
+import random
 
 from train import train
 from cem_model import CEMModelWrapper
@@ -22,17 +24,17 @@ parser.add_argument('--backbone', type=str, default='resnet18', choices=['resnet
                                                                          'vgg16', 'vgg19', 'mobilenetv2',
                                                                         ])
 
-parser.add_argument('--lamb_ce', type=float, default=1.)
-parser.add_argument('--lamb_tv', type=float, default=0.01)
-parser.add_argument('--lamb_peak', type=float, default=0.125)
-parser.add_argument('--lamb_active', type=float, default=0.15)
-parser.add_argument('--lamb_wass', type=float, default=0.1)
-parser.add_argument('--lamb_spread', type=float, default=0.1)
+parser.add_argument('--lamb_ce',        type=float, default=1.0)
+parser.add_argument('--lamb_active',    type=float, default=0.5)
+parser.add_argument('--lamb_peak',      type=float, default=0.05)
+parser.add_argument('--lamb_tv_pre',    type=float, default=0.05)
+parser.add_argument('--lamb_spread',    type=float, default=0.2)
+parser.add_argument('--lamb_border',    type=float, default=0.5)
+parser.add_argument('--lamb_diversity', type=float, default=0.5)
 
-
-parser.add_argument('--lamb_alignment', type=float, default=0.1)
-
-
+parser.add_argument('--lamb_alignment', type=float, default=0.3)
+parser.add_argument('--lamb_contrast',  type=float, default=0.5)
+parser.add_argument('--lamb_tv_post',   type=float, default=0.1)
 
 parser.add_argument('--optimizer', type=str, default='adam', choices=['adam', 'adamw', 'rmsprop', 'sgd'])
 parser.add_argument('--lr', type=float, default=1e-3)
@@ -41,10 +43,22 @@ parser.add_argument('--pretrain_epochs', type=int, default=20)
 parser.add_argument('--epochs', type=int, default=50)
 parser.add_argument('--image_size', type=int, default=32)
 parser.add_argument('--batch_size', type=int, default=32)
-parser.add_argument('--dataset', type=str, default='cifar10', choices=['cifar10', 'cifar100', 'stl10'])
+parser.add_argument('--dataset', type=str, default='cifar10', choices=['cifar10', 'cifar100', 'stl10', 'oxfordpets'])
 parser.add_argument('--run_dir', type=str)
 parser.add_argument('--pretrained', action='store_true', default=True)
+parser.add_argument('--seed', type=int, default=1666)
 args = parser.parse_args()
+
+
+def set_seed(seed):
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    np.random.seed(seed)
+    random.seed(seed)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+
+set_seed(args.seed)
 
 
 
@@ -96,7 +110,6 @@ os.makedirs(args.run_dir, exist_ok=True)
 with open(os.path.join(args.run_dir, "config.json"), "w") as f:
     json.dump(config, f, indent=2)
 
-# ---- create fresh state file ----
 torch.save({
     "epoch": 0,
     "test_loss": 0,

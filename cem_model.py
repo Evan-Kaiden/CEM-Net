@@ -19,13 +19,13 @@ class SpatialAttention(nn.Module):
         self.init_conv = nn.Sequential(
             nn.Conv2d(in_channels, in_channels // 8, kernel_size=3, padding=1, padding_mode='reflect'),
             nn.ReLU(),
-            nn.Conv2d(in_channels, in_channels // 8, kernel_size=3, padding=1, padding_mode='reflect'),
+            nn.Conv2d(in_channels // 8, in_channels // 16, kernel_size=3, padding=1, padding_mode='reflect'),
             nn.ReLU()
         )
         self.final_conv = nn.Conv2d(in_channels // 16, 1, kernel_size=1)
 
         nn.init.normal_(self.final_conv.weight, mean=0, std=0.01)
-        nn.init.constant_(self.final_conv.bias, val=0)
+        nn.init.constant_(self.final_conv.bias, val=1)
 
     def forward(self, x):
         original_x = x
@@ -33,7 +33,7 @@ class SpatialAttention(nn.Module):
         feat = self.init_conv(x)
         logits = self.final_conv(feat) 
 
-        attn = torch.sigmoid(logits / 0.3)
+        attn = torch.sigmoid(logits / 2)
 
         attended = original_x * attn 
 
@@ -119,13 +119,13 @@ class CEMModelWrapper(nn.Module):
         if train_attention:
             x = self.attn_classifier(attended)
             logits = x.mean(dim=(-2,-1))
-            return logits, attn
+            return logits, attn, features
         else:
             logits, maps = self.evidence_mapper(features, skips=skips)
             if return_maps:
                 attn_up = F.interpolate(attn, size=maps.shape[-2:], 
                                     mode='bilinear', align_corners=False)
-                norm_attn = normalize_attn(attn_up)
-                return logits, maps, norm_attn
+                # norm_attn = normalize_attn(attn_up)
+                return logits, maps, attn_up
             else:
                 return logits
